@@ -1,0 +1,14 @@
+services:
+  quant-terminal:
+    build: .
+    ports:
+      - "127.0.0.1:3777:3777"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3777
+      QT_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+      - ./custom:/app/custom
+    restart: unless-stopped
+    init: true

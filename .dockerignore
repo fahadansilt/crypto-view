@@ -1,0 +1,13 @@
+.git
+.github
+.gitignore
+.dockerignore
+data
+node_modules
+test
+video
+dist
+target
+*.log
+*.tmp
+session-*.md
