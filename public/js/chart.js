@@ -938,16 +938,16 @@ export class ChartPane {
       if (this.ws !== ws) return;
       this.ws = null;
       if (!opened) this.openSocket(sym, interval, hostIdx + 1);
-      else this.liveTimer = setTimeout(() => this.startLive(), 3000);
+      else this.liveTimer = setTimeout(() => this.startLive(), 1000);
     };
   }
 
   poll() {
-    const kind = ["BINANCE", "BINANCE_FUTURES", "COINBASE", "KRAKEN"].includes(
+    const crypto = ["BINANCE", "BINANCE_FUTURES", "COINBASE", "KRAKEN"].includes(
       exchange(this.cfg.symbol),
-    )
-      ? 3000
-      : 10000;
+    );
+    const active = this.app.active === this;
+    const kind = crypto ? (active ? 1000 : 3000) : (active ? 3000 : 5000);
     const tick = async () => {
       try {
         const r = await api.candles(this.cfg.symbol, this.cfg.tf, 5);
