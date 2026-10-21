@@ -3,6 +3,7 @@ import { api, fmtPrice, fmtPct, esc, ticker, exchange } from "./api.js";
 import { BY_ID, compute, periodKey } from "../lib/indicators.js";
 import {
   parseTf,
+  bucketStart,
   isIntraday,
   heikinAshi,
   renko,
@@ -15,6 +16,28 @@ import { DrawingLayer, TOOL_BY_ID } from "./drawings.js";
 import { VolumeProfile, SessionVolumeProfile } from "./volume-profile.js";
 
 const LW = window.LightweightCharts;
+
+function candleCloseTime(time, tf) {
+  const { n, unit, seconds } = parseTf(tf);
+  if (unit === "M") {
+    const next = new Date(bucketStart(time, tf) * 1000);
+    next.setUTCMonth(next.getUTCMonth() + n);
+    return next.getTime() / 1000;
+  }
+  if (unit === "W") return bucketStart(time, tf) + seconds;
+  return time + seconds;
+}
+
+function formatTimeLeft(seconds) {
+  const pad = (value) => String(value).padStart(2, "0");
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (days) return `${days}d ${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+  if (hours) return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+  return `${pad(minutes)}:${pad(secs)}`;
+}
 
 export const CHART_TYPES = [
   ["candles", "Candles"],
@@ -149,6 +172,7 @@ export class ChartPane {
     this.chartEl = el.querySelector(".chart");
     this.legendEl = el.querySelector(".legend");
     this.msgEl = el.querySelector(".pane-msg");
+    this.countdownTimer = setInterval(() => this.updateCountdown(), 1000);
     this.createChart();
     el.addEventListener("mousedown", () => app.setActive(this), true);
   }
@@ -725,7 +749,7 @@ export class ChartPane {
     const chg = b && prev ? ((b.close - prev.close) / prev.close) * 100 : null;
     const cls = chg == null ? "" : chg >= 0 ? "up" : "down";
     const name = `${ticker(this.cfg.symbol)} · ${this.cfg.tf} · ${this.provider || exchange(this.cfg.symbol)}`;
-    let html = `<div class="row"><span class="title" data-act="symbol">${esc(name)}</span>`;
+    let html = `<div class="row"><span class="title" data-act="symbol">${esc(name)}</span><span class="candle-countdown" title="Time remaining in the current candle">--:--</span>`;
     if (b)
       html += `<span class="ohlc ${cls}"><span><b>O</b>${fmtPrice(b.open)}</span><span><b>H</b>${fmtPrice(b.high)}</span><span><b>L</b>${fmtPrice(b.low)}</span><span><b>C</b>${fmtPrice(b.close)}</span><span>${fmtPct(chg)}</span></span>`;
     html += "</div>";
@@ -779,6 +803,29 @@ export class ChartPane {
       }
       if (act === "settings") this.app.openIndicatorSettings(this, ind);
     };
+    this.updateCountdown();
+  }
+
+  updateCountdown() {
+    const countdown = this.legendEl?.querySelector(".candle-countdown");
+    if (!countdown) return;
+    if (this.replay) {
+      countdown.classList.add("hidden");
+      return;
+    }
+    countdown.classList.remove("hidden");
+    const last = this.bars.at(-1);
+    if (!last) {
+      countdown.textContent = "--:--";
+      countdown.classList.remove("urgent");
+      return;
+    }
+    const remaining = Math.max(
+      0,
+      Math.ceil(candleCloseTime(last.time, this.cfg.tf) - Date.now() / 1000),
+    );
+    countdown.textContent = formatTimeLeft(remaining);
+    countdown.classList.toggle("urgent", remaining > 0 && remaining <= 10);
   }
 
   // ---------- indicators ----------
@@ -1206,6 +1253,7 @@ export class ChartPane {
   destroy() {
     this.loadToken = {};
     this.stopLive();
+    clearInterval(this.countdownTimer);
     clearInterval(this.replayTimer);
     this.chart.remove();
   }

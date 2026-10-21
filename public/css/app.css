@@ -346,6 +346,19 @@ select.tb option {
   pointer-events: auto;
   cursor: pointer;
 }
+.legend .candle-countdown {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  color: var(--muted);
+  font: 11px/17px "Fragment Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.legend .candle-countdown.urgent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .legend .ohlc span {
   margin-right: 6px;
 }
