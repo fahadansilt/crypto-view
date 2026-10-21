@@ -140,6 +140,8 @@ export class ChartPane {
     this.compareSeries = new Map();
     this.extraMarkers = [];
     this.replay = null;
+    this.wsWatchTimer = null;
+    this.forcePollingUntil = 0;
     el.innerHTML =
       '<div class="chart"></div><div class="legend"></div><div class="pane-msg hidden"></div>';
     this.chartEl = el.querySelector(".chart");
@@ -900,6 +902,8 @@ export class ChartPane {
   startLive() {
     this.stopLive();
     if (this.replay || !this.bars.length) return;
+    if (this.forcePollingUntil > Date.now()) return this.poll();
+    this.forcePollingUntil = 0;
     const ex = exchange(this.cfg.symbol);
     const wsTf = BINANCE_WS_TF[this.cfg.tf];
     if ((ex === "BINANCE" && this.provider === "Binance" || ex === "BINANCE_FUTURES" && this.provider === "Binance Futures") && wsTf)
@@ -914,13 +918,29 @@ export class ChartPane {
     ];
     if (hostIdx >= hosts.length) return this.poll();
     let opened = false;
+    let lastMessageAt = Date.now();
     const ws = new WebSocket(`${hosts[hostIdx]}${sym}@kline_${interval}`);
     this.ws = ws;
+    const armWatchdog = () => {
+      clearTimeout(this.wsWatchTimer);
+      this.wsWatchTimer = setTimeout(() => {
+        if (this.ws !== ws || Date.now() - lastMessageAt < 5000) return;
+        // A socket can stay "open" while its feed has stopped. Fall back to HTTP briefly,
+        // then try the live stream again.
+        this.forcePollingUntil = Date.now() + 30000;
+        this.stopLive();
+        this.poll();
+      }, 5000);
+    };
     ws.onopen = () => {
       opened = true;
+      lastMessageAt = Date.now();
+      armWatchdog();
       this.app.setStatus("ok");
     };
     ws.onmessage = (m) => {
+      lastMessageAt = Date.now();
+      armWatchdog();
       const k = JSON.parse(m.data).k;
       if (k)
         this.merge([
@@ -934,7 +954,10 @@ export class ChartPane {
           },
         ]);
     };
+    ws.onerror = () => ws.close();
     ws.onclose = () => {
+      clearTimeout(this.wsWatchTimer);
+      this.wsWatchTimer = null;
       if (this.ws !== ws) return;
       this.ws = null;
       if (!opened) this.openSocket(sym, interval, hostIdx + 1);
@@ -955,6 +978,11 @@ export class ChartPane {
       } catch {
         /* keep trying */
       }
+      if (this.forcePollingUntil && Date.now() >= this.forcePollingUntil) {
+        this.forcePollingUntil = 0;
+        this.startLive();
+        return;
+      }
       this.liveTimer = setTimeout(tick, kind);
     };
     this.liveTimer = setTimeout(tick, kind);
@@ -963,6 +991,8 @@ export class ChartPane {
   stopLive() {
     clearTimeout(this.liveTimer);
     this.liveTimer = null;
+    clearTimeout(this.wsWatchTimer);
+    this.wsWatchTimer = null;
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;
