@@ -34,14 +34,14 @@ const HOST = process.env.HOST || "127.0.0.1";
 const START_PORT = Number(process.env.PORT) || 3777;
 const AUTH_USER = process.env.QT_AUTH_USER || "";
 const AUTH_PASSWORD = process.env.QT_AUTH_PASSWORD || "";
-const AUTH_SECRET = process.env.QT_AUTH_SECRET || "";
-const AUTH_ENABLED = Boolean(AUTH_USER || AUTH_PASSWORD || AUTH_SECRET);
+const AUTH_SECRET = randomBytes(32);
+const AUTH_ENABLED = Boolean(AUTH_USER || AUTH_PASSWORD);
 const SESSION_COOKIE = "qt_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const failedLogins = new Map();
-if (AUTH_ENABLED && (!AUTH_USER || !AUTH_PASSWORD || AUTH_SECRET.length < 32)) {
+if (AUTH_ENABLED && (!AUTH_USER || !AUTH_PASSWORD)) {
   throw new Error(
-    "Set QT_AUTH_USER, QT_AUTH_PASSWORD, and QT_AUTH_SECRET (at least 32 characters) to enable login.",
+    "Set both QT_AUTH_USER and QT_AUTH_PASSWORD to enable login.",
   );
 }
 
@@ -119,7 +119,7 @@ if (
   !AUTH_ENABLED
 ) {
   throw new Error(
-    "QT_ALLOWED_HOSTS includes a public host; configure QT_AUTH_USER, QT_AUTH_PASSWORD, and QT_AUTH_SECRET before exposing the app.",
+    "QT_ALLOWED_HOSTS includes a public host; configure QT_AUTH_USER and QT_AUTH_PASSWORD before exposing the app.",
   );
 }
 

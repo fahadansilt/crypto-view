@@ -44,10 +44,9 @@ The app blocks unknown Host names by default. To serve it through Nginx, create 
 QT_ALLOWED_HOSTS=chart.fahadansil.online
 QT_AUTH_USER=your-login-name
 QT_AUTH_PASSWORD=use-a-long-unique-password
-QT_AUTH_SECRET=paste-a-random-secret-of-at-least-32-characters
 ```
 
-Generate a session-signing secret with `openssl rand -hex 32`. Keep `.env` private; it is excluded from Git. The app requires all three `QT_AUTH_*` values whenever a non-local host is allowed. It uses 12-hour, HTTP-only, same-site session cookies, marks them Secure when Nginx forwards HTTPS, and limits failed sign-ins. Recreate the container after editing `.env` with `docker compose up -d --build`.
+Keep `.env` private; it is excluded from Git. The app requires both login values whenever a non-local host is allowed. It generates a random session-signing key at startup, uses 12-hour, HTTP-only, same-site session cookies, marks them Secure when Nginx forwards HTTPS, and limits failed sign-ins. Sessions end when the server restarts. Recreate the container after editing `.env` with `docker compose up -d --build`.
 
 Keep the published port bound to `127.0.0.1`, and proxy Nginx to `http://127.0.0.1:3777`. The live chart uses the WebSocket feed and also checks the candle API every second for the active pane, so a socket that appears connected cannot leave the displayed value stuck.
 
