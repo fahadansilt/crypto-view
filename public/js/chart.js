@@ -168,8 +168,9 @@ export class ChartPane {
     this.wsPollTimer = null;
     this.forcePollingUntil = 0;
     el.innerHTML =
-      '<div class="chart"></div><div class="legend"></div><div class="pane-msg hidden"></div>';
+      '<div class="chart"></div><div class="price-countdown hidden"><span class="price"></span><span class="remaining"></span></div><div class="legend"></div><div class="pane-msg hidden"></div>';
     this.chartEl = el.querySelector(".chart");
+    this.priceCountdownEl = el.querySelector(".price-countdown");
     this.legendEl = el.querySelector(".legend");
     this.msgEl = el.querySelector(".pane-msg");
     this.countdownTimer = setInterval(() => this.updateCountdown(), 1000);
@@ -749,7 +750,7 @@ export class ChartPane {
     const chg = b && prev ? ((b.close - prev.close) / prev.close) * 100 : null;
     const cls = chg == null ? "" : chg >= 0 ? "up" : "down";
     const name = `${ticker(this.cfg.symbol)} · ${this.cfg.tf} · ${this.provider || exchange(this.cfg.symbol)}`;
-    let html = `<div class="row"><span class="title" data-act="symbol">${esc(name)}</span><span class="candle-countdown" title="Time remaining in the current candle">--:--</span>`;
+    let html = `<div class="row"><span class="title" data-act="symbol">${esc(name)}</span>`;
     if (b)
       html += `<span class="ohlc ${cls}"><span><b>O</b>${fmtPrice(b.open)}</span><span><b>H</b>${fmtPrice(b.high)}</span><span><b>L</b>${fmtPrice(b.low)}</span><span><b>C</b>${fmtPrice(b.close)}</span><span>${fmtPct(chg)}</span></span>`;
     html += "</div>";
@@ -807,25 +808,37 @@ export class ChartPane {
   }
 
   updateCountdown() {
-    const countdown = this.legendEl?.querySelector(".candle-countdown");
-    if (!countdown) return;
+    const label = this.priceCountdownEl;
+    if (!label) return;
     if (this.replay) {
-      countdown.classList.add("hidden");
+      label.classList.add("hidden");
       return;
     }
-    countdown.classList.remove("hidden");
-    const last = this.bars.at(-1);
-    if (!last) {
-      countdown.textContent = "--:--";
-      countdown.classList.remove("urgent");
+    const last = this.shown.at(-1) || this.bars.at(-1);
+    const y = last && this.main?.priceToCoordinate(last.close);
+    const chartHeight = this.chartEl.clientHeight;
+    const axisWidth = this.main?.priceScale().width() || 0;
+    if (
+      !last ||
+      y == null ||
+      !Number.isFinite(y) ||
+      y < 0 ||
+      y > chartHeight ||
+      axisWidth <= 0
+    ) {
+      label.classList.add("hidden");
       return;
     }
+    label.classList.remove("hidden");
+    label.style.width = `${axisWidth}px`;
+    label.style.top = `${Math.max(0, Math.min(chartHeight - label.offsetHeight, y - label.offsetHeight / 2))}px`;
+    label.style.backgroundColor = css(last.close >= last.open ? "--up" : "--down");
+    label.querySelector(".price").textContent = fmtPrice(last.close);
     const remaining = Math.max(
       0,
       Math.ceil(candleCloseTime(last.time, this.cfg.tf) - Date.now() / 1000),
     );
-    countdown.textContent = formatTimeLeft(remaining);
-    countdown.classList.toggle("urgent", remaining > 0 && remaining <= 10);
+    label.querySelector(".remaining").textContent = formatTimeLeft(remaining);
   }
 
   // ---------- indicators ----------
