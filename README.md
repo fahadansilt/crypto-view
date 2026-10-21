@@ -38,13 +38,18 @@ To stop it, run `docker compose down`. Your data stays in those folders, so star
 
 ### Use behind Nginx
 
-The app blocks unknown Host names by default. To serve it through Nginx, create a `.env` file beside `compose.yaml` with your exact domain:
+The app blocks unknown Host names by default. To serve it through Nginx, create a `.env` file beside `compose.yaml` with your exact domain and sign-in credentials:
 
 ```text
-QT_ALLOWED_HOSTS=dash.fahadansil.online
+QT_ALLOWED_HOSTS=chart.fahadansil.online
+QT_AUTH_USER=your-login-name
+QT_AUTH_PASSWORD=use-a-long-unique-password
+QT_AUTH_SECRET=paste-a-random-secret-of-at-least-32-characters
 ```
 
-Then rebuild with `docker compose up -d --build`. Keep the published port bound to `127.0.0.1`, and proxy Nginx to `http://127.0.0.1:3777`. Quant Terminal has no sign-in screen, so add Nginx authentication or restrict access to your own IP/VPN before exposing the domain publicly.
+Generate a session-signing secret with `openssl rand -hex 32`. Keep `.env` private; it is excluded from Git. The app requires all three `QT_AUTH_*` values whenever a non-local host is allowed. It uses 12-hour, HTTP-only, same-site session cookies, marks them Secure when Nginx forwards HTTPS, and limits failed sign-ins. Recreate the container after editing `.env` with `docker compose up -d --build`.
+
+Keep the published port bound to `127.0.0.1`, and proxy Nginx to `http://127.0.0.1:3777`. The live chart uses the WebSocket feed and also checks the candle API every second for the active pane, so a socket that appears connected cannot leave the displayed value stuck.
 
 ## What's in it
 

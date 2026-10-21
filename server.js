@@ -5,6 +5,7 @@
 //   PORT=4000 node server.js  pick a port
 
 import http from "node:http";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -31,6 +32,18 @@ const VERSION = JSON.parse(
 ).version;
 const HOST = process.env.HOST || "127.0.0.1";
 const START_PORT = Number(process.env.PORT) || 3777;
+const AUTH_USER = process.env.QT_AUTH_USER || "";
+const AUTH_PASSWORD = process.env.QT_AUTH_PASSWORD || "";
+const AUTH_SECRET = process.env.QT_AUTH_SECRET || "";
+const AUTH_ENABLED = Boolean(AUTH_USER || AUTH_PASSWORD || AUTH_SECRET);
+const SESSION_COOKIE = "qt_session";
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const failedLogins = new Map();
+if (AUTH_ENABLED && (!AUTH_USER || !AUTH_PASSWORD || AUTH_SECRET.length < 32)) {
+  throw new Error(
+    "Set QT_AUTH_USER, QT_AUTH_PASSWORD, and QT_AUTH_SECRET (at least 32 characters) to enable login.",
+  );
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -99,6 +112,82 @@ const configuredAllowedHosts = new Set(
     .map((name) => name.trim().toLowerCase())
     .filter(Boolean),
 );
+if (
+  [...configuredAllowedHosts].some(
+    (name) => !["localhost", "127.0.0.1", "::1"].includes(name),
+  ) &&
+  !AUTH_ENABLED
+) {
+  throw new Error(
+    "QT_ALLOWED_HOSTS includes a public host; configure QT_AUTH_USER, QT_AUTH_PASSWORD, and QT_AUTH_SECRET before exposing the app.",
+  );
+}
+
+function digestCredential(value) {
+  return createHmac("sha256", AUTH_SECRET).update(value).digest();
+}
+
+function equalCredential(a, b) {
+  return timingSafeEqual(digestCredential(a), digestCredential(b));
+}
+
+function sessionSignature(payload) {
+  return createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+}
+
+function sessionFor(req) {
+  if (!AUTH_ENABLED) return true;
+  const cookie = (req.headers.cookie || "")
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${SESSION_COOKIE}=`))
+    ?.slice(SESSION_COOKIE.length + 1);
+  if (!cookie) return false;
+  const [payload, signature] = cookie.split(".");
+  if (!payload || !signature) return false;
+  const expected = sessionSignature(payload);
+  const givenBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  if (
+    givenBytes.length !== expectedBytes.length ||
+    !timingSafeEqual(givenBytes, expectedBytes)
+  )
+    return false;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return session.user === AUTH_USER && session.exp > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function setSessionCookie(req, res, value, maxAge) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const secure = req.socket.encrypted || forwardedProto === "https";
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure ? "; Secure" : ""}`,
+  );
+}
+
+function loginRateLimit(req) {
+  const key = req.headers["x-real-ip"] || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const recent = (failedLogins.get(key) || []).filter((at) => now - at < 15 * 60 * 1000);
+  failedLogins.set(key, recent);
+  return recent.length >= 5;
+}
+
+function recordFailedLogin(req) {
+  const key = req.headers["x-real-ip"] || req.socket.remoteAddress || "unknown";
+  const recent = (failedLogins.get(key) || []).filter((at) => Date.now() - at < 15 * 60 * 1000);
+  recent.push(Date.now());
+  failedLogins.set(key, recent);
+}
+
 function allowed(req) {
   const host = (req.headers.host || "")
     .replace(/:\d+$/, "")
@@ -228,6 +317,65 @@ async function handle(req, res) {
     return send(res, 400, "Bad URL");
   }
   const q = Object.fromEntries(url.searchParams);
+
+  if (p === "/api/auth/status" && req.method === "GET")
+    return send(res, 200, {
+      enabled: AUTH_ENABLED,
+      authenticated: sessionFor(req),
+    });
+  if (AUTH_ENABLED && p === "/api/auth/login" && req.method === "POST") {
+    if (loginRateLimit(req))
+      return send(
+        res,
+        429,
+        { error: "Too many login attempts. Try again in 15 minutes." },
+        { "Retry-After": "900" },
+      );
+    let body;
+    try {
+      body = await readBody(req, 4096);
+    } catch (e) {
+      return send(res, e.status || 400, { error: e.message });
+    }
+    const username = String(body.username || "");
+    const password = String(body.password || "");
+    const validUser = equalCredential(username, AUTH_USER);
+    const validPassword = equalCredential(password, AUTH_PASSWORD);
+    if (!validUser || !validPassword) {
+      recordFailedLogin(req);
+      return send(res, 401, { error: "Invalid username or password." });
+    }
+    failedLogins.delete(req.headers["x-real-ip"] || req.socket.remoteAddress || "unknown");
+    const payload = Buffer.from(
+      JSON.stringify({
+        user: AUTH_USER,
+        exp: Date.now() + SESSION_TTL_MS,
+        nonce: randomBytes(16).toString("hex"),
+      }),
+    ).toString("base64url");
+    setSessionCookie(req, res, `${payload}.${sessionSignature(payload)}`, SESSION_TTL_MS / 1000);
+    return send(res, 200, { ok: true });
+  }
+  if (AUTH_ENABLED && (p === "/login" || p === "/login.html") && req.method === "GET") {
+    if (sessionFor(req)) {
+      res.writeHead(303, { Location: "/", "Cache-Control": "no-store" });
+      return res.end();
+    }
+    return serveStatic(res, PUBLIC, "login.html");
+  }
+  if (AUTH_ENABLED && p === "/api/auth/logout" && req.method === "POST") {
+    setSessionCookie(req, res, "", 0);
+    return send(res, 200, { ok: true });
+  }
+  if (AUTH_ENABLED && !sessionFor(req)) {
+    if (p.startsWith("/api/"))
+      return send(res, 401, {
+        error: "Sign in to use Quant Terminal.",
+        loginRequired: true,
+      });
+    res.writeHead(303, { Location: "/login", "Cache-Control": "no-store" });
+    return res.end();
+  }
 
   if (!p.startsWith("/api/")) {
     if (p === "/" || p === "/index.html")

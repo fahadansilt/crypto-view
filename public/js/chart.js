@@ -141,6 +141,8 @@ export class ChartPane {
     this.extraMarkers = [];
     this.replay = null;
     this.wsWatchTimer = null;
+    this.wsConnectTimer = null;
+    this.wsPollTimer = null;
     this.forcePollingUntil = 0;
     el.innerHTML =
       '<div class="chart"></div><div class="legend"></div><div class="pane-msg hidden"></div>';
@@ -921,6 +923,10 @@ export class ChartPane {
     let lastMessageAt = Date.now();
     const ws = new WebSocket(`${hosts[hostIdx]}${sym}@kline_${interval}`);
     this.ws = ws;
+    clearTimeout(this.wsConnectTimer);
+    this.wsConnectTimer = setTimeout(() => {
+      if (this.ws === ws && !opened) ws.close();
+    }, 5000);
     const armWatchdog = () => {
       clearTimeout(this.wsWatchTimer);
       this.wsWatchTimer = setTimeout(() => {
@@ -934,8 +940,11 @@ export class ChartPane {
     };
     ws.onopen = () => {
       opened = true;
+      clearTimeout(this.wsConnectTimer);
+      this.wsConnectTimer = null;
       lastMessageAt = Date.now();
       armWatchdog();
+      this.pollSocketFeed();
       this.app.setStatus("ok");
     };
     ws.onmessage = (m) => {
@@ -956,13 +965,44 @@ export class ChartPane {
     };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
+      clearTimeout(this.wsConnectTimer);
+      this.wsConnectTimer = null;
       clearTimeout(this.wsWatchTimer);
       this.wsWatchTimer = null;
+      this.stopSocketFeed();
       if (this.ws !== ws) return;
       this.ws = null;
       if (!opened) this.openSocket(sym, interval, hostIdx + 1);
       else this.liveTimer = setTimeout(() => this.startLive(), 1000);
     };
+  }
+
+  // Keep reconciling with the app's HTTP candle feed while the socket is open.
+  // This covers browser networks where the WebSocket stays open but its values stall.
+  pollSocketFeed() {
+    this.stopSocketFeed();
+    const socket = this.ws;
+    const symbol = this.cfg.symbol;
+    const tf = this.cfg.tf;
+    const tick = async () => {
+      if (this.ws !== socket || socket?.readyState !== WebSocket.OPEN || this.replay) return;
+      try {
+        const r = await api.candles(symbol, tf, 5);
+        if (this.ws === socket && socket.readyState === WebSocket.OPEN) this.merge(r.candles);
+      } catch {
+        /* the WebSocket can continue while HTTP retries on its next tick */
+      }
+      if (this.ws === socket && socket.readyState === WebSocket.OPEN && !this.replay) {
+        const delay = this.app.active === this ? 1000 : 3000;
+        this.wsPollTimer = setTimeout(tick, delay);
+      }
+    };
+    this.wsPollTimer = setTimeout(tick, 1000);
+  }
+
+  stopSocketFeed() {
+    clearTimeout(this.wsPollTimer);
+    this.wsPollTimer = null;
   }
 
   poll() {
@@ -993,6 +1033,9 @@ export class ChartPane {
     this.liveTimer = null;
     clearTimeout(this.wsWatchTimer);
     this.wsWatchTimer = null;
+    clearTimeout(this.wsConnectTimer);
+    this.wsConnectTimer = null;
+    this.stopSocketFeed();
     if (this.ws) {
       const ws = this.ws;
       this.ws = null;

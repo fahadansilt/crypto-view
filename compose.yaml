@@ -9,6 +9,9 @@ services:
       PORT: 3777
       QT_DATA_DIR: /app/data
       QT_ALLOWED_HOSTS: ${QT_ALLOWED_HOSTS:-}
+      QT_AUTH_USER: ${QT_AUTH_USER:-}
+      QT_AUTH_PASSWORD: ${QT_AUTH_PASSWORD:-}
+      QT_AUTH_SECRET: ${QT_AUTH_SECRET:-}
     volumes:
       - ./data:/app/data
       - ./custom:/app/custom

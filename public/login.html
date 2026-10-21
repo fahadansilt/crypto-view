@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Sign in · Quant Terminal</title>
+    <style>
+      :root { color-scheme: dark; --bg:#101114; --panel:#17191e; --line:#2b2e36; --text:#e7e9ee; --muted:#969ba7; --accent:#5684ff; }
+      * { box-sizing: border-box; }
+      body { min-height:100vh; margin:0; display:grid; place-items:center; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,sans-serif; }
+      main { width:min(380px,calc(100vw - 32px)); padding:28px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+      h1 { margin:0 0 4px; font-size:21px; font-weight:600; }
+      p { margin:0 0 22px; color:var(--muted); }
+      label { display:block; margin:14px 0 6px; font-size:13px; }
+      input { width:100%; height:40px; padding:0 11px; border:1px solid var(--line); border-radius:5px; outline:none; background:#101216; color:var(--text); font:inherit; }
+      input:focus { border-color:var(--accent); }
+      button { width:100%; height:40px; margin-top:20px; border:0; border-radius:5px; background:var(--accent); color:white; font:600 14px system-ui,sans-serif; cursor:pointer; }
+      button:disabled { opacity:.65; cursor:wait; }
+      #error { min-height:21px; margin:10px 0 0; color:#ff7777; font-size:13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Quant Terminal</h1>
+      <p>Sign in to open your chart.</p>
+      <form id="loginForm">
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required autofocus />
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+        <button id="submit" type="submit">Sign in</button>
+        <div id="error" role="alert" aria-live="polite"></div>
+      </form>
+    </main>
+    <script>
+      const form = document.querySelector("#loginForm");
+      const button = document.querySelector("#submit");
+      const error = document.querySelector("#error");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        button.disabled = true;
+        error.textContent = "";
+        try {
+          const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-qt": "1" },
+            body: JSON.stringify({
+              username: form.username.value,
+              password: form.password.value,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || "Sign in failed.");
+          location.assign("/");
+        } catch (e) {
+          error.textContent = e.message;
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

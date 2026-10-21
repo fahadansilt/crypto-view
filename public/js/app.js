@@ -98,6 +98,25 @@ class App {
     this.listenAlerts();
     this.checkHealth();
     setInterval(() => this.checkHealth(), 60000);
+    try {
+      const auth = await api.get("/api/auth/status");
+      if (auth.enabled) {
+        const button = $("#logoutBtn");
+        button.classList.remove("hidden");
+        button.onclick = async () => {
+          button.disabled = true;
+          try {
+            await api.post("/api/auth/logout", {});
+            location.assign("/login");
+          } catch (e) {
+            button.disabled = false;
+            this.toast(`Couldn't sign out: ${e.message}`, "err");
+          }
+        };
+      }
+    } catch {
+      /* auth is optional for local installs */
+    }
   }
 
   // ---------- persistence ----------
