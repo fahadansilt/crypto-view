@@ -1,5 +1,6 @@
 services:
   quant-terminal:
+    container_name: cryptoview
     build: .
     ports:
       - "127.0.0.1:3777:3777"
