@@ -91,13 +91,26 @@ async function readText(req, limit = 300e6) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-// The server only answers to this machine's browser. Writes need a custom header, which a random
-// website can't add to a cross-site request, so other pages can't drive your terminal.
+// By default the server only answers to this machine's browser. Reverse-proxy hosts must be
+// explicitly listed in QT_ALLOWED_HOSTS. Writes still need the custom header and same-origin check.
+const configuredAllowedHosts = new Set(
+  (process.env.QT_ALLOWED_HOSTS || "")
+    .split(",")
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean),
+);
 function allowed(req) {
   const host = (req.headers.host || "")
     .replace(/:\d+$/, "")
-    .replace(/^\[|\]$/g, "");
-  const okHosts = new Set(["localhost", "127.0.0.1", "::1", ...lanAddresses()]);
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
+  const okHosts = new Set([
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    ...lanAddresses(),
+    ...configuredAllowedHosts,
+  ]);
   if (!okHosts.has(host)) return false;
   if (req.method !== "GET" && req.method !== "HEAD") {
     if (req.headers["x-qt"] !== "1") return false;

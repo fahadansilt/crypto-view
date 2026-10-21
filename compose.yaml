@@ -8,6 +8,7 @@ services:
       HOST: 0.0.0.0
       PORT: 3777
       QT_DATA_DIR: /app/data
+      QT_ALLOWED_HOSTS: ${QT_ALLOWED_HOSTS:-}
     volumes:
       - ./data:/app/data
       - ./custom:/app/custom

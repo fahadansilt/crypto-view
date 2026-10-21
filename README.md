@@ -36,6 +36,16 @@ Open [http://localhost:3777](http://localhost:3777). Docker uses this folder's `
 
 To stop it, run `docker compose down`. Your data stays in those folders, so starting it again with `docker compose up -d` restores it.
 
+### Use behind Nginx
+
+The app blocks unknown Host names by default. To serve it through Nginx, create a `.env` file beside `compose.yaml` with your exact domain:
+
+```text
+QT_ALLOWED_HOSTS=dash.fahadansil.online
+```
+
+Then rebuild with `docker compose up -d --build`. Keep the published port bound to `127.0.0.1`, and proxy Nginx to `http://127.0.0.1:3777`. Quant Terminal has no sign-in screen, so add Nginx authentication or restrict access to your own IP/VPN before exposing the domain publicly.
+
 ## What's in it
 
 | You get | Notes |

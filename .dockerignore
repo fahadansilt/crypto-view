@@ -3,6 +3,7 @@
 .gitignore
 .dockerignore
 data
+.env
 node_modules
 test
 video
