@@ -841,6 +841,25 @@ export class ChartPane {
     label.querySelector(".remaining").textContent = formatTimeLeft(remaining);
   }
 
+  updateLivePrice(last) {
+    const row = this.legendEl.querySelector(".row:first-child");
+    if (row) {
+      const prev = this.shown.at(-2);
+      const chg = prev
+        ? ((last.close - prev.close) / prev.close) * 100
+        : null;
+      const cls = chg == null ? "" : chg >= 0 ? "up" : "down";
+      let ohlc = row.querySelector(".ohlc");
+      if (!ohlc) {
+        ohlc = document.createElement("span");
+        row.append(ohlc);
+      }
+      ohlc.className = `ohlc ${cls}`;
+      ohlc.innerHTML = `<span><b>O</b>${fmtPrice(last.open)}</span><span><b>H</b>${fmtPrice(last.high)}</span><span><b>L</b>${fmtPrice(last.low)}</span><span><b>C</b>${fmtPrice(last.close)}</span><span>${fmtPct(chg)}</span>`;
+    }
+    this.updateCountdown();
+  }
+
   // ---------- indicators ----------
   addIndicator(id, params = {}) {
     const uid = newUid();
@@ -1136,13 +1155,15 @@ export class ChartPane {
         this.times.push(this.toChart(last.time));
       this.main.update(this.pointFor(last));
       this.volume?.update(this.volPoint(last));
+      this.updateLivePrice(last);
     }
     const now = Date.now();
     if (now - (this.mtfCheckedAt || 0) > 60000) {
       this.mtfCheckedAt = now;
       for (const [tf, h] of Object.entries(this.mtf || {})) if (now - h.at > 60000) this.loadMtf(tf);
     }
-    if (!simple || now - (this.lastFull || 0) > 1500) {
+    const renderInterval = this.app.active === this ? 500 : 1500;
+    if (!simple || now - (this.lastFull || 0) > renderInterval) {
       this.lastFull = now;
       if (simple) {
         this.renderIndicators();
