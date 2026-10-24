@@ -1215,13 +1215,14 @@ export class ChartPane {
       this.mtfCheckedAt = now;
       for (const [tf, h] of Object.entries(this.mtf || {})) if (now - h.at > 60000) this.loadMtf(tf);
     }
-    const renderInterval = this.app.active === this ? 500 : 1500;
-    if (!simple || now - (this.lastFull || 0) > renderInterval) {
+    const active = this.app.active === this;
+    if (simple && this.cfg.indicators?.length && now - (this.lastFull || 0) > (active ? 1500 : 5000)) {
       this.lastFull = now;
-      if (simple) {
-        this.renderIndicators();
-        this.updateLegend();
-      } else this.render(false);
+      this.renderIndicators();
+      this.updateLegend();
+    } else if (!simple && now - (this.lastFull || 0) > (active ? 1200 : 4000)) {
+      this.lastFull = now;
+      this.render(false);
     }
   }
 
