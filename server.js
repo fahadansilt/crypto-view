@@ -215,6 +215,11 @@ function allowed(req) {
   return true;
 }
 
+function isLoopbackAddress(address) {
+  const ip = String(address || "").toLowerCase();
+  return ip === "::1" || ip.startsWith("127.") || ip.startsWith("::ffff:127.");
+}
+
 function lanAddresses() {
   if (HOST === "127.0.0.1" || HOST === "localhost") return [];
   return Object.values(os.networkInterfaces())
@@ -367,7 +372,8 @@ async function handle(req, res) {
     setSessionCookie(req, res, "", 0);
     return send(res, 200, { ok: true });
   }
-  if (AUTH_ENABLED && !sessionFor(req)) {
+  const localHealthCheck = p === "/api/health" && isLoopbackAddress(req.socket.remoteAddress);
+  if (AUTH_ENABLED && !sessionFor(req) && !localHealthCheck) {
     if (p.startsWith("/api/"))
       return send(res, 401, {
         error: "Sign in to use Quant Terminal.",
