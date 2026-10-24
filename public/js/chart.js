@@ -1167,6 +1167,16 @@ export class ChartPane {
 
   merge(newBars) {
     if (!this.bars.length || this.replay) return;
+    const currentLast = this.bars.at(-1);
+    const continuousMarket = ["BINANCE", "BINANCE_FUTURES", "COINBASE", "KRAKEN"].includes(
+      exchange(this.cfg.symbol),
+    );
+    const interval = parseTf(this.cfg.tf).seconds;
+    const futureBars = newBars.filter((b) => b.time > currentLast.time);
+    if (
+      continuousMarket &&
+      futureBars.some((b) => b.time > currentLast.time + interval)
+    ) this.backfillLiveGap(currentLast.time, Math.max(...futureBars.map((b) => b.time)));
     let changed = false;
     for (const b of newBars) {
       const last = this.bars.at(-1);
@@ -1212,6 +1222,41 @@ export class ChartPane {
         this.renderIndicators();
         this.updateLegend();
       } else this.render(false);
+    }
+  }
+
+  async backfillLiveGap(fromTime, throughTime) {
+    if (this.gapFillPending) return;
+    const symbol = this.cfg.symbol;
+    const tf = this.cfg.tf;
+    const token = this.loadToken;
+    const interval = parseTf(tf).seconds;
+    const gapBars = Math.ceil((throughTime - fromTime) / interval) - 1;
+    const limit = Math.min(
+      20000,
+      Math.max(10, gapBars + 5),
+      this.app.settings.bars || 3000,
+    );
+    this.gapFillPending = true;
+    try {
+      const r = await api.candles(symbol, tf, limit);
+      if (token !== this.loadToken || symbol !== this.cfg.symbol || tf !== this.cfg.tf) return;
+      const latestTime = this.bars.at(-1)?.time;
+      const byTime = new Map(this.bars.map((bar) => [bar.time, bar]));
+      for (const bar of r.candles) {
+        // Preserve the latest live candle in case REST returned an older cached value.
+        if (bar.time < latestTime) byTime.set(bar.time, bar);
+      }
+      const merged = [...byTime.values()].sort((a, b) => a.time - b.time);
+      if (merged.length === this.bars.length) return;
+      this.bars = merged;
+      this.provider = r.provider || this.provider;
+      this.render(false);
+      this.app.onPrice(this.cfg.symbol, this.bars.at(-1).close);
+    } catch {
+      /* continue live updates; the next missed interval can retry the backfill */
+    } finally {
+      this.gapFillPending = false;
     }
   }
 
