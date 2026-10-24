@@ -174,8 +174,43 @@ export class ChartPane {
     this.legendEl = el.querySelector(".legend");
     this.msgEl = el.querySelector(".pane-msg");
     this.countdownTimer = setInterval(() => this.updateCountdown(), 1000);
+    this.onVisibilityChange = () => {
+      if (document.hidden) this.suspendedAt = Date.now();
+      else this.refreshAfterResume();
+    };
+    this.onWindowBlur = () => {
+      this.suspendedAt ||= Date.now();
+    };
+    this.onWindowFocus = () => this.refreshAfterResume();
+    this.onPageShow = (event) => {
+      if (event.persisted) this.suspendedAt ||= Date.now() - 5000;
+      this.refreshAfterResume();
+    };
+    this.onPageHide = () => {
+      this.suspendedAt ||= Date.now();
+    };
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    window.addEventListener("blur", this.onWindowBlur);
+    window.addEventListener("focus", this.onWindowFocus);
+    window.addEventListener("pageshow", this.onPageShow);
+    window.addEventListener("pagehide", this.onPageHide);
     this.createChart();
     el.addEventListener("mousedown", () => app.setActive(this), true);
+  }
+
+  refreshAfterResume() {
+    if (document.hidden) return;
+    const suspendedAt = this.suspendedAt;
+    this.suspendedAt = 0;
+    if (
+      !suspendedAt ||
+      Date.now() - suspendedAt < 2000 ||
+      Date.now() - (this.lastResumeRefresh || 0) < 5000 ||
+      this.replay ||
+      !this.bars.length
+    ) return;
+    this.lastResumeRefresh = Date.now();
+    this.load({ keepView: true });
   }
 
   // ---------- setup ----------
@@ -391,6 +426,7 @@ export class ChartPane {
   // ---------- data ----------
   async load({ keepView = false } = {}) {
     const token = (this.loadToken = {});
+    const previousBars = this.bars;
     this.stopLive();
     this.showMsg(`Loading ${ticker(this.cfg.symbol)}…`);
     try {
@@ -414,11 +450,18 @@ export class ChartPane {
       this.app.onPaneLoaded(this);
     } catch (e) {
       if (token !== this.loadToken) return;
-      this.bars = [];
-      this.render(true);
-      this.showMsg(
-        `Couldn't load ${esc(this.cfg.symbol)} on ${esc(this.cfg.tf)}.\n${esc(e.message)}`,
-      );
+      if (previousBars.length) {
+        this.bars = previousBars;
+        this.render(false);
+        this.showMsg("");
+        this.startLive();
+      } else {
+        this.bars = [];
+        this.render(true);
+        this.showMsg(
+          `Couldn't load ${esc(this.cfg.symbol)} on ${esc(this.cfg.tf)}.\n${esc(e.message)}`,
+        );
+      }
     }
   }
 
@@ -1289,6 +1332,11 @@ export class ChartPane {
     this.stopLive();
     clearInterval(this.countdownTimer);
     clearInterval(this.replayTimer);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    window.removeEventListener("blur", this.onWindowBlur);
+    window.removeEventListener("focus", this.onWindowFocus);
+    window.removeEventListener("pageshow", this.onPageShow);
+    window.removeEventListener("pagehide", this.onPageHide);
     this.chart.remove();
   }
 }
