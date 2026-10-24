@@ -358,7 +358,32 @@ class App {
     this.persist();
   }
 
+  recentSymbols() {
+    let saved = [];
+    try {
+      saved = JSON.parse(localStorage.getItem("qt.recentSymbols") || "[]");
+    } catch {
+      /* use chart symbols when browser storage is unavailable */
+    }
+    if (!Array.isArray(saved)) saved = [];
+    saved = saved.filter((symbol) => typeof symbol === "string" && symbol.trim());
+    const openCharts = this.panes.map((p) => p.cfg.symbol).filter(Boolean);
+    return [...new Set([...saved, ...openCharts])].slice(0, 10);
+  }
+
+  rememberSymbol(symbol) {
+    const value = String(symbol || "").trim();
+    if (!value) return;
+    try {
+      const recent = this.recentSymbols().filter((s) => s !== value);
+      localStorage.setItem("qt.recentSymbols", JSON.stringify([value, ...recent].slice(0, 10)));
+    } catch {
+      /* symbol selection still works without browser storage */
+    }
+  }
+
   setSymbol(sym, pane = this.active) {
+    this.rememberSymbol(sym);
     const targets = this.settings.syncSymbol ? this.panes : [pane];
     for (const p of targets) {
       p.cfg.symbol = sym;
@@ -437,21 +462,35 @@ class App {
       results = [],
       timer;
     const pick = (sym) => {
+      this.rememberSymbol(sym);
       this.closeModal();
       if (onPick) onPick(sym);
       else this.setSymbol(sym);
     };
     const draw = () => {
-      list.innerHTML =
-        results
-          .map(
-            (r, i) =>
-              `<div class="item ${i === sel ? "sel" : ""}" data-i="${i}"><span><b>${esc(ticker(r.symbol))}</b> <span class="muted">${esc(r.name || "")}</span></span><span class="meta">${esc(r.type || "")} · ${esc(r.exchange || "")}</span></div>`,
-          )
-          .join("") ||
-        (q.value.trim()
-          ? `<div class="item" data-raw="1"><span>Open <b>${esc(q.value.trim().toUpperCase())}</b></span><span class="meta">press Enter</span></div>`
-          : "");
+      if (!q.value.trim()) {
+        results = this.recentSymbols().map((symbol) => ({
+          symbol,
+          type: "Recent",
+          exchange: symbol.includes(":") ? symbol.split(":", 1)[0] : "",
+        }));
+        list.innerHTML = results.length
+          ? `<div class="group">Recent symbols</div>${results
+              .map(
+                (r, i) =>
+                  `<div class="item ${i === sel ? "sel" : ""}" data-i="${i}"><span><b>${esc(ticker(r.symbol))}</b></span><span class="meta">Recent${r.exchange ? ` · ${esc(r.exchange)}` : ""}</span></div>`,
+              )
+              .join("")}`
+          : '<div class="hint-text" style="padding:10px">Your recent symbols will appear here.</div>';
+        return;
+      }
+      list.innerHTML = results
+        .map(
+          (r, i) =>
+            `<div class="item ${i === sel ? "sel" : ""}" data-i="${i}"><span><b>${esc(ticker(r.symbol))}</b> <span class="muted">${esc(r.name || "")}</span></span><span class="meta">${esc(r.type || "")} · ${esc(r.exchange || "")}</span></div>`,
+        )
+        .join("") ||
+        `<div class="item" data-raw="1"><span>Open <b>${esc(q.value.trim().toUpperCase())}</b></span><span class="meta">press Enter</span></div>`;
     };
     const run = async () => {
       const v = q.value.trim();
@@ -485,7 +524,10 @@ class App {
         draw();
         e.preventDefault();
       }
-      if (e.key === "Enter") pick(results[sel]?.symbol || q.value.trim());
+      if (e.key === "Enter") {
+        const choice = results[sel]?.symbol || q.value.trim();
+        if (choice) pick(choice);
+      }
     };
     list.onclick = (e) => {
       const it = e.target.closest(".item");
@@ -496,6 +538,7 @@ class App {
     };
     q.focus();
     q.setSelectionRange(q.value.length, q.value.length);
+    draw();
     if (initial) run();
   }
 
