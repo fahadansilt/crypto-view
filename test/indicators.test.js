@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as I from '../public/lib/indicators.js';
 import luxalgoStyle from '../custom/luxalgo-style.js';
+import majorFvg from '../custom/major-fvg.js';
 import { backtest, conditionFn } from '../public/lib/backtest.js';
 
 const bars = JSON.parse(readFileSync(new URL('./fixtures/btc-1d.json', import.meta.url), 'utf8'));
@@ -287,4 +288,89 @@ test('chart renderer never draws LuxAlgo-style numeric signals on a sub-dollar p
     if (previousWindow === undefined) delete globalThis.window;
     else globalThis.window = previousWindow;
   }
+});
+
+test('LuxAlgo-style signal fallback is transparent even when legacy renderers ignore output visibility', () => {
+  const out = lux(bars);
+  for (const key of ['buy', 'sell', 'direction']) {
+    const def = luxalgoStyle.outputs.find((o) => o.key === key);
+    assert.equal(def.kind, 'histogram', 'legacy histogram renderer uses per-point colors');
+    assert.equal(def.color, '#00000000');
+    assert.equal(def.visible, false);
+  }
+  assert.equal(out.colors.length, bars.length);
+  assert.ok(out.colors.every((color) => color === 'rgba(0,0,0,0)'));
+  assert.ok(out.buy.some((v) => v === 1) && out.sell.some((v) => v === 1), 'numeric rules still work');
+});
+
+const fvgParams = Object.fromEntries(majorFvg.inputs.map((input) => [input.key, input.default]));
+const fvg = (b, params = {}) => majorFvg.calc(b, { ...fvgParams, atrLength: 2, minGapAtr: 0.2, minBodyAtr: 0.5, ...params }, I.ta);
+const fvgBar = (i, open, high, low, close) => ({ time: 1700000000 + i * 60, open, high, low, close, volume: 100 });
+const gapBars = [fvgBar(0, 10, 10.5, 9.5, 10), fvgBar(1, 10, 14.5, 10, 14), fvgBar(2, 14, 15.5, 14, 15), fvgBar(3, 15, 15.5, 14.5, 15)];
+
+test('major FVGs follow the format, confirm three candles and ignore the unfinished candle', () => {
+  assert.deepEqual(I.indicatorProblems(majorFvg), []);
+  assert.deepEqual(fvg(gapBars.slice(0, 3)).fvgZones, [], 'third candle still forming');
+  const out = fvg(gapBars);
+  assert.equal(out.value.length, gapBars.length);
+  assert.equal(out.fvgZones.length, 1);
+  const zone = out.fvgZones[0];
+  assert.equal(zone.side, 'bullish');
+  assert.equal(zone.lower, 10.5);
+  assert.equal(zone.upper, 14);
+  assert.equal(zone.created, gapBars[2].time);
+  assert.equal(zone.touched, false);
+  assert.ok(near(zone.atrSize, 3.5 / 2.75));
+  const forming = [...gapBars.slice(0, 3), fvgBar(3, 15, 16, 1, 2)];
+  assert.deepEqual(fvg(forming).fvgZones, out.fvgZones, 'unfinished wick cannot create or mitigate a confirmed zone');
+  for (const n of [0, 1, 2]) assert.deepEqual(fvg(gapBars.slice(0, n)).fvgZones, []);
+});
+
+test('major FVGs shrink on partial fills and disappear on complete fills, symmetrically', () => {
+  const partial = [...gapBars.slice(0, 3), fvgBar(3, 15, 15, 12, 13), fvgBar(4, 13, 14, 12.5, 13)];
+  const zone = fvg(partial).fvgZones.find((z) => z.side === 'bullish');
+  assert.equal(zone.upper, 12);
+  assert.equal(zone.lower, 10.5);
+  assert.equal(zone.originalUpper, 14);
+  assert.equal(zone.touched, true);
+  const filled = [...partial.slice(0, 4), fvgBar(4, 13, 13, 10, 11), fvgBar(5, 11, 12, 10.5, 11)];
+  assert.ok(!fvg(filled).fvgZones.some((z) => z.created === gapBars[2].time));
+  const mirror = (b) => b.map((x) => ({ ...x, open: 20 - x.open, high: 20 - x.low, low: 20 - x.high, close: 20 - x.close }));
+  const bear = fvg(mirror(gapBars)).fvgZones[0];
+  assert.equal(bear.side, 'bearish');
+  assert.equal(bear.lower, 6);
+  assert.equal(bear.upper, 9.5);
+  assert.equal(fvg(mirror(partial)).fvgZones.find((z) => z.side === 'bearish').lower, 8);
+  assert.ok(!fvg(mirror(filled)).fvgZones.some((z) => z.created === gapBars[2].time));
+});
+
+test('major FVG filters reject small gaps and weak displacement without emitting price-scale values', () => {
+  assert.deepEqual(fvg(gapBars, { minGapAtr: 10 }).fvgZones, []);
+  assert.deepEqual(fvg(gapBars, { minBodyAtr: 10 }).fvgZones, []);
+  const out = fvg(bars);
+  assert.ok(out.value.every(Number.isNaN), 'no numeric plots stretch the scale');
+  assert.ok(out.fvgZones.filter((z) => z.side === 'bullish').length <= 2);
+  assert.ok(out.fvgZones.filter((z) => z.side === 'bearish').length <= 2);
+  assert.ok(out.fvgZones.every((z) => z.lower < z.upper && z.created < bars.at(-1).time));
+});
+
+test('FVG rectangles stay attached to price and new-zone labels fit inside the chart', async () => {
+  const { FvgZones } = await import('../public/js/fvg-zones.js');
+  const rectangles = [], texts = [];
+  const ctx = {
+    save() {}, restore() {}, setLineDash() {}, strokeRect() {},
+    measureText: (text) => ({ width: text.length * 5 }),
+    fillRect: (...args) => rectangles.push(args),
+    fillText: (...args) => texts.push(args),
+  };
+  const pane = { shown: gapBars, chart: { timeScale: () => ({ logicalToCoordinate: () => 295 }) } };
+  const primitive = new FvgZones(pane, fvg(gapBars).fvgZones);
+  primitive.attached({ series: { priceToCoordinate: (price) => (20 - price) * 10 } });
+  primitive.draw({ context: ctx, mediaSize: { width: 300, height: 200 } });
+  assert.deepEqual(rectangles[0], [295, 60, 5, 35], 'rectangle matches gap bounds, not 0/1 signal values');
+  assert.equal(texts.length, 1);
+  assert.ok(texts[0][1] + ctx.measureText(texts[0][0]).width <= 300, 'right-edge labels are not clipped');
+  primitive.detached();
+  primitive.draw({ context: ctx, mediaSize: { width: 300, height: 200 } });
+  assert.equal(texts.length, 1, 'detached primitives stop drawing');
 });

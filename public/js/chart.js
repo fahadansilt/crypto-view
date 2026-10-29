@@ -14,6 +14,7 @@ import {
 } from "../lib/series.js";
 import { DrawingLayer, TOOL_BY_ID } from "./drawings.js";
 import { VolumeProfile, SessionVolumeProfile } from "./volume-profile.js";
+import { FvgZones } from "./fvg-zones.js";
 
 const LW = window.LightweightCharts;
 
@@ -695,6 +696,11 @@ export class ChartPane {
       this.indResults[ind.uid] = res;
       if (ind.hidden || this.cfg.hideIndicators || !n) continue;
       if (res.markers && !ind.tf) markers.push(...res.markers);
+      if (Array.isArray(res.fvgZones) && res.fvgZones.length) {
+        const fvg = new FvgZones(this, res.fvgZones);
+        this.main.attachPrimitive(fvg);
+        this.vpPrims.push(fvg);
+      }
       if (res.volumeProfile) {
         const vp = new VolumeProfile(this, res.volumeProfile);
         this.main.attachPrimitive(vp);

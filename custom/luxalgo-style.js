@@ -16,10 +16,10 @@ export default {
     { key: 'bullish', label: 'Bullish trail', kind: 'line', color: '#26a69a', lineWidth: 2 },
     { key: 'bearish', label: 'Bearish trail', kind: 'line', color: '#ef5350', lineWidth: 2 },
     { key: 'trend', label: 'Trend EMA', kind: 'line', color: '#ffb74d' },
-    // Keep numeric signals available to rules without stretching the price scale to zero.
-    { key: 'buy', label: 'Buy signal', kind: 'histogram', color: '#26a69a', visible: false },
-    { key: 'sell', label: 'Sell signal', kind: 'histogram', color: '#ef5350', visible: false },
-    { key: 'direction', label: 'Direction (+1 bullish / -1 bearish)', visible: false },
+    // Transparent histograms are a fallback for older renderers that ignore visible:false.
+    { key: 'buy', label: 'Buy signal', kind: 'histogram', color: '#00000000', visible: false },
+    { key: 'sell', label: 'Sell signal', kind: 'histogram', color: '#00000000', visible: false },
+    { key: 'direction', label: 'Direction (+1 bullish / -1 bearish)', kind: 'histogram', color: '#00000000', visible: false },
   ],
   calc(bars, p, ta) {
     for (const key of ['atrLength', 'emaLength']) {
@@ -49,6 +49,9 @@ export default {
         text: buy[i] ? 'Buy' : 'Sell',
       });
     }
-    return { bullish: st.up, bearish: st.down, trend, buy, sell, direction, markers };
+    // Per-point colors also override saved signal colors in legacy renderers. Without
+    // this, a 0→1 histogram can paint a full-height column even with autoscale off.
+    const colors = new Array(bars.length).fill('rgba(0,0,0,0)');
+    return { bullish: st.up, bearish: st.down, trend, buy, sell, direction, markers, colors };
   },
 };

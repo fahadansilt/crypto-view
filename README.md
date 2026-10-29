@@ -150,6 +150,14 @@ Paste [`examples/luxalgo-style-strategy.json`](examples/luxalgo-style-strategy.j
 
 **Docker updates:** `custom/` is mounted live, while the renderer is built into the image. After updating application code, run `docker compose up -d --build` and refresh the browser so both versions match. Older renderers can otherwise plot numeric signals on the price scale. The LuxAlgo-style overlay also disables autoscaling as a compatibility safeguard.
 
+Hidden LuxAlgo-style signal plots also have transparent per-point colors. This prevents full-height buy/sell columns even when an older renderer ignores `visible: false` or saved signal colors are present. Numeric alert and backtest signals are unchanged.
+
+### Major FVG zones
+
+Select **Indicators → Custom → Major FVG zones** to draw shaded bullish (green) and bearish (red) fair value gaps, with price bounds. A bullish gap is between candle 1's high and candle 3's low; a bearish gap is between candle 3's high and candle 1's low. By default, a major gap must span at least 0.5 ATR and the middle candle's body must span at least 1 ATR. These are configurable filters, not a universal definition of “major.”
+
+The overlay shows the nearest two qualifying zones on each side from the last 1,000 bars. Partial wick fills shrink the remaining zone and add a **partial** label; a wick reaching the far boundary removes it. The newest candle is excluded until another candle arrives, so an unfinished candle cannot create or fill a confirmed zone (bar replay is conservative by one bar too). Zones do not affect price autoscaling. An off-screen zone remains off-screen until you pan or adjust the scale. These are areas of imbalance to watch, not guaranteed support/resistance or entry signals.
+
 ### PHA/USDT 1-minute strategy research
 
 In **Strategy tester → Load a strategy**, choose **PHA 1m trend filter (experimental)**. This long-only spot candidate accepts bullish Supertrend reversals above EMA 200 only when ADX is above 20, RSI is between 50 and 70, volume is above its 20-bar EMA, and Bollinger width exceeds 1%. It allocates 25% of equity per position, uses a 1% price stop and 2% target, and exits on a bearish reversal or after 120 bars. Stops can fill worse across gaps. Costs are 0.1% fees plus 0.05% slippage per side and a 0.25% bid/ask spread.

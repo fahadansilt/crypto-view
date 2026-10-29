@@ -70,6 +70,7 @@ Return an object with one plain array per output, each exactly as long as `bars`
 |---|---|
 | `markers` | Arrows or labels on the price chart: `[{ time, position, shape, color, text }]`. `position` is `aboveBar`, `belowBar` or `inBar`; `shape` is `arrowUp`, `arrowDown`, `circle` or `square` |
 | `colors` | For a histogram: one hex colour per bar, to colour each column |
+| `fvgZones` | Shaded price rectangles: `[{ side: 'bullish' or 'bearish', lower, upper, created, touched }]`, with price bounds and creation time in UTC seconds. See `custom/major-fvg.js` for confirmed, partially filled and fully filled zones |
 
 Only look at bars up to the one you're computing (`i` and before). Looking ahead makes an indicator look better on the chart than it could ever be live.
 
