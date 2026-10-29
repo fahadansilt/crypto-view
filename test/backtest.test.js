@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { backtest, EXAMPLE_STRATEGIES, tradesCsv, magnifierTf } from '../public/lib/backtest.js';
+import { BY_ID } from '../public/lib/indicators.js';
 
 const bars = JSON.parse(readFileSync(new URL('./fixtures/btc-1d.json', import.meta.url), 'utf8'));
 
@@ -43,6 +44,23 @@ test('every example strategy runs and the trades export to CSV', () => {
     assert.ok(r.equity.length === bars.length, name);
     assert.ok(tradesCsv(r.trades).startsWith('side,'));
   }
+});
+
+test('PHA 1m experimental preset has valid indicator settings, realistic costs and bounded position sizing', () => {
+  const strategy = EXAMPLE_STRATEGIES['PHA 1m trend filter (experimental)'];
+  for (const spec of Object.values(strategy.indicators)) {
+    const keys = new Set(BY_ID[spec.id].inputs.map((input) => input.key));
+    for (const key of Object.keys(spec.params)) assert.ok(keys.has(key), `${spec.id}: unknown setting ${key}`);
+  }
+  assert.equal(strategy.positionPct, 25);
+  assert.equal(strategy.stopLossPct, 1);
+  assert.equal(strategy.takeProfitPct, 2);
+  assert.equal(strategy.maxBarsInTrade, 120);
+  assert.ok(strategy.feePct > 0 && strategy.slippagePct > 0 && strategy.spreadPct > 0);
+  assert.deepEqual(strategy.entryShort, [], 'spot preset does not assume borrowed shorts');
+  const result = backtest(bars, strategy);
+  assert.equal(result.equity.length, bars.length);
+  assert.ok(result.equity.every((point) => Number.isFinite(point.value)));
 });
 
 import { linePrice, conditionFn } from '../public/lib/backtest.js';

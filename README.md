@@ -148,6 +148,16 @@ Green/red trails show the trend, with Buy/Sell labels only on accepted reversals
 
 Paste [`examples/luxalgo-style-strategy.json`](examples/luxalgo-style-strategy.json) into the strategy tester's JSON editor to backtest long/short signals on your chart. Entries use accepted signals; exits use every opposing trend reversal, including filtered-out signals. Fills occur at the next bar's open with 0.1% fees and 0.05% slippage per side.
 
+**Docker updates:** `custom/` is mounted live, while the renderer is built into the image. After updating application code, run `docker compose up -d --build` and refresh the browser so both versions match. Older renderers can otherwise plot numeric signals on the price scale. The LuxAlgo-style overlay also disables autoscaling as a compatibility safeguard.
+
+### PHA/USDT 1-minute strategy research
+
+In **Strategy tester → Load a strategy**, choose **PHA 1m trend filter (experimental)**. This long-only spot candidate accepts bullish Supertrend reversals above EMA 200 only when ADX is above 20, RSI is between 50 and 70, volume is above its 20-bar EMA, and Bollinger width exceeds 1%. It allocates 25% of equity per position, uses a 1% price stop and 2% target, and exits on a bearish reversal or after 120 bars. Stops can fill worse across gaps. Costs are 0.1% fees plus 0.05% slippage per side and a 0.25% bid/ask spread.
+
+This is a research preset, **not a validated profitable strategy**. A 60-day Binance spot evaluation on 2026-10-29 used 86,400 closed 1-minute candles with a chronological 60/20/20 development/validation/holdout split. The held-out 12 days returned **−2.46%**, with **3.01%** maximum drawdown over **22 trades**; all five development quant checks failed. No settings were selected using holdout results. PHA's observed spread was about 0.22%, making frequent scalping expensive.
+
+Reproduce the evaluation with `node scripts/evaluate-pha.js`. It caches source bars in `data/pha-1m-60d.json` and saves the strategy, data hash, assumptions, split results and quant checks in `data/pha-strategy-evaluation.json`. Use `--refresh` to fetch a new window or `--days=90` to evaluate a longer one. These are live-data checks; `npm test` remains offline.
+
 ## Strategy format
 
 The tester, alerts and screener share one rule format, so an AI agent can write strategies for you:

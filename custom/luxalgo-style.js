@@ -4,6 +4,8 @@
 export default {
   name: 'LuxAlgo-style trend signals',
   overlay: true,
+  // Also protects the candle scale if this mounted file reaches an older Docker renderer.
+  noAutoscale: true,
   inputs: [
     { key: 'atrLength', label: 'ATR length', type: 'int', default: 10, min: 1 },
     { key: 'sensitivity', label: 'ATR multiplier (higher = fewer flips)', type: 'float', default: 3, min: 0.1 },

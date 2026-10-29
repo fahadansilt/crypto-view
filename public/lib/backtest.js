@@ -448,6 +448,38 @@ export function tradesCsv(trades) {
 }
 
 export const EXAMPLE_STRATEGIES = {
+  "PHA 1m trend filter (experimental)": {
+    // Frozen rules for evaluation, not an optimized or proven-profitable preset.
+    indicators: {
+      st: { id: "supertrend", params: { atrLength: 10, factor: 3 }, output: "direction" },
+      trend: { id: "ema", params: { length: 200 } },
+      strength: { id: "adx", params: { diLength: 14, adxSmoothing: 14 } },
+      momentum: { id: "rsi", params: { length: 14 } },
+      activity: { id: "ema", params: { length: 20, source: "volume" } },
+      width: { id: "bbw", params: { length: 20, mult: 2 } },
+    },
+    entryLong: [
+      { left: "st", op: "crossesBelow", right: 0 },
+      { left: "close", op: ">", right: "trend" },
+      { left: "strength", op: ">", right: 20 },
+      { left: "momentum", op: ">", right: 50 },
+      { left: "momentum", op: "<", right: 70 },
+      { left: "volume", op: ">", right: "activity" },
+      { left: "width", op: ">", right: 1 },
+    ],
+    exitLong: [{ left: "st", op: ">", right: 0 }],
+    entryShort: [],
+    exitShort: [],
+    stopLossPct: 1,
+    takeProfitPct: 2,
+    maxBarsInTrade: 120,
+    initialCapital: 10000,
+    positionPct: 25,
+    feePct: 0.1,
+    slippagePct: 0.05,
+    spreadPct: 0.25,
+    intrabar: "worst",
+  },
   "EMA cross (9/21)": {
     indicators: {
       fast: { id: "ema", params: { length: 9 } },

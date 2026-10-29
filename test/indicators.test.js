@@ -248,3 +248,43 @@ test('LuxAlgo-style hidden signals work in alert rules and the example strategy 
     assert.ok(near(trade.entryPrice, bars[i].open * slip));
   }
 });
+
+test('chart renderer never draws LuxAlgo-style numeric signals on a sub-dollar price scale', async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { LightweightCharts: { LineSeries: 'line', HistogramSeries: 'histogram' } };
+  try {
+    const { ChartPane } = await import('../public/js/chart.js');
+    const b = bars.slice(0, 200).map((bar) => ({ ...bar, open: bar.open / 1e6, high: bar.high / 1e6, low: bar.low / 1e6, close: bar.close / 1e6 }));
+    const out = lux(b);
+    const plotted = [];
+    let markers;
+    const pane = {
+      chart: {
+        panes: () => [{ setStretchFactor() {} }],
+        addSeries(kind, opts, index) {
+          const series = { kind, opts, index, setData(data) { this.data = data; } };
+          plotted.push(series);
+          return series;
+        },
+      },
+      cfg: { indicators: [{ uid: 'lux', id: luxId, params: {} }], tf: '1m' },
+      shown: b, times: b.map((bar) => bar.time), step: 60,
+      indSeries: new Map(), extraMarkers: [],
+      computeIndicator: () => out,
+      toChart: (time) => time,
+      markers: { setMarkers(value) { markers = value; } },
+    };
+    ChartPane.prototype.renderIndicators.call(pane);
+    assert.equal(plotted.length, 3, 'only bullish trail, bearish trail and EMA');
+    assert.ok(plotted.every((s) => s.kind === 'line' && s.index === 0));
+    for (const s of plotted) {
+      assert.equal(s.opts.autoscaleInfoProvider(), null, 'overlay does not stretch the candle scale');
+      assert.ok(s.data.every((point) => point.value === undefined || point.value > 0 && point.value < 1));
+    }
+    assert.deepEqual(markers, out.markers, 'buy/sell arrows still draw');
+    assert.equal(pane.indResults.lux, out, 'hidden signals remain available for rules and exports');
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});

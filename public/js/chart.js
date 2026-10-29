@@ -810,6 +810,7 @@ export class ChartPane {
         : res.pending
           ? '<span class="muted">loading…</span>'
           : def.outputs
+            .filter((o) => o.visible !== false)
             .map((o) => {
               const v = res[o.key]?.[i];
               return Number.isFinite(v)
