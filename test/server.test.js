@@ -154,7 +154,7 @@ test('static files cannot escape their folder', async () => {
     assert.ok([403, 404].includes(await status(u)), u);
 });
 
-test('POST /api/shutdown stops a running copy (used by the installer to update)', async () => {
+test('a running copy loads LuxAlgo-style for charts and backtests, and POST /api/shutdown stops it', async () => {
   const { spawn } = await import('node:child_process');
   const port = 41000 + Math.floor(Math.random() * 1000);
   const child = spawn(process.execPath, ['server.js'], { cwd: new URL('..', import.meta.url), env: { ...process.env, PORT: String(port), QT_OFFLINE: '1' }, stdio: 'pipe' });
@@ -167,6 +167,19 @@ test('POST /api/shutdown stops a running copy (used by the installer to update)'
       child.stdout.on('data', (d) => { out += d; const m = /localhost:(\d+)/.exec(out); if (m) ok(Number(m[1])); });
       exited.then((code) => no(new Error(`the copy exited (${code}) before it started:\n${out}`)));
     }), 'starting the copy');
+    const copyBase = `http://127.0.0.1:${actual}`;
+    const list = await (await fetch(`${copyBase}/api/custom`)).json();
+    assert.equal(list.find((c) => c.file === 'luxalgo-style.js')?.error, null);
+    const file = await fetch(`${copyBase}/custom/luxalgo-style.js`);
+    assert.equal(file.status, 200);
+    assert.match(await file.text(), /LuxAlgo-style trend signals/);
+    const indicators = await (await fetch(`${copyBase}/api/indicators`)).json();
+    assert.ok(indicators.some((d) => d.id === 'custom:luxalgo-style' && d.outputs.includes('buy') && d.outputs.includes('sell')));
+    const strategy = JSON.parse(fs.readFileSync(new URL('../examples/luxalgo-style-strategy.json', import.meta.url), 'utf8'));
+    const response = await fetch(`${copyBase}/api/backtest`, { method: 'POST', headers: H, body: JSON.stringify({ symbol: 'BTCUSDT', tf: '1D', limit: 500, strategy }) });
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.ok(result.stats.totalTrades > 0 && Number.isFinite(result.stats.netProfitPct));
     assert.equal((await fetch(`http://127.0.0.1:${actual}/api/shutdown`, { method: 'POST' })).status, 403, 'needs the app header');
     assert.equal((await fetch(`http://127.0.0.1:${actual}/api/shutdown`, { method: 'POST', headers: { 'x-qt': '1' } })).status, 200);
     assert.equal(await within(10000, exited, 'shutting down'), 0);

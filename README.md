@@ -140,6 +140,14 @@ export default {
 
 `ta` has `sma, ema, rma, wma, hma, rsi, atr, stdev, highest, lowest, crossover, crossunder, source` and `compute(id, bars, params)` for any built-in indicator. Return `markers` to put arrows or labels on the chart. To turn a Pine `alertcondition` into an alert, return the signal as an output (1 or 0) and alert on it: [`docs/alert-example.js`](docs/alert-example.js) is a working one.
 
+### LuxAlgo-style trend signals
+
+The bundled `custom/luxalgo-style.js` is an original approximation using Supertrend ATR trails and an optional EMA filter, not LuxAlgo's proprietary formulas. Restart the server and refresh the app, then select **Indicators → Custom → LuxAlgo-style trend signals**. Defaults: ATR 10, multiplier 3, EMA 50, filter On. Higher multipliers widen the trail; the EMA filter accepts buys above the EMA and sells below it. Filtered-out reversals are skipped, not delayed until the filter passes.
+
+Green/red trails show the trend, with Buy/Sell labels only on accepted reversals. Hidden numeric outputs `buy` and `sell` are 1 on a signal bar and 0 otherwise; `direction` is +1 bullish, -1 bearish, and unavailable during ATR warm-up. These work in alerts and strategy rules without distorting the price scale. Use **Once per bar close** alerts: the current live candle's signal can change until it closes. Historical values use no future bars.
+
+Paste [`examples/luxalgo-style-strategy.json`](examples/luxalgo-style-strategy.json) into the strategy tester's JSON editor to backtest long/short signals on your chart. Entries use accepted signals; exits use every opposing trend reversal, including filtered-out signals. Fills occur at the next bar's open with 0.1% fees and 0.05% slippage per side.
+
 ## Strategy format
 
 The tester, alerts and screener share one rule format, so an AI agent can write strategies for you:

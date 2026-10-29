@@ -56,6 +56,7 @@ Each output is one plot. `calc` must return an array for it under the same key.
 | `label` | No | The name in the legend and colour settings. Defaults to the key |
 | `color` | No | A colour. Use hex, like `#2962ff`, so the colour picker in the settings box can show it |
 | `lineWidth` | No | 1 to 4, for lines |
+| `visible` | No | `true` (default) plots it; `false` keeps it available for alerts, rules and exports without drawing it or affecting the chart scale |
 
 ## calc(bars, p, ta)
 

@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as I from '../public/lib/indicators.js';
+import luxalgoStyle from '../custom/luxalgo-style.js';
+import { backtest, conditionFn } from '../public/lib/backtest.js';
 
 const bars = JSON.parse(readFileSync(new URL('./fixtures/btc-1d.json', import.meta.url), 'utf8'));
 const close = bars.map((b) => b.close);
@@ -138,6 +140,7 @@ test('a malformed custom indicator is refused, with each problem named', () => {
     [{ ...good, inputs: [{ key: 'src', type: 'source', default: 'close' }] }, /a source input's key must be "source"/],
     [{ ...good, inputs: [{ key: 'on', type: 'bool', default: true }] }, /`type` must be one of int, float, select, source, time/],
     [{ ...good, outputs: [{ key: 'value', kind: 'area' }] }, /`kind` must be "line" or "histogram"/],
+    [{ ...good, outputs: [{ key: 'value', visible: 'false' }] }, /`visible` must be true or false/],
     [{ ...good, outputs: [{ key: 'a' }, { key: 'a' }], calc: (b) => ({ a: b.map(() => 1) }) }, /output "a": the key is used twice/],
     [{ ...good, calc: (bars) => ({ value: bars.slice(1).map((b) => b.close) }) }, /output "value": calc\(\) returned 299 values, but there are 300 bars/],
     [{ ...good, calc: () => ({}) }, /output "value": calc\(\) returned no list for it/],
@@ -152,4 +155,96 @@ test('a malformed custom indicator is refused, with each problem named', () => {
   );
   assert.equal(I.BY_ID['custom:test-broken'], undefined, 'a refused indicator is not registered');
   assert.equal(I.registerIndicator({ ...good, id: 'custom:test-ok' }).id, 'custom:test-ok');
+});
+
+const luxId = 'custom:luxalgo-style';
+const luxStrategy = JSON.parse(readFileSync(new URL('../examples/luxalgo-style-strategy.json', import.meta.url), 'utf8'));
+function lux(b, params = {}) {
+  if (!I.BY_ID[luxId]) I.registerIndicator({ ...luxalgoStyle, id: luxId });
+  return I.compute(luxId, b, params);
+}
+
+test('LuxAlgo-style indicator follows the format and handles empty, short and flat histories', () => {
+  assert.deepEqual(I.indicatorProblems(luxalgoStyle), []);
+  for (const n of [0, 1, 9, 10, 49, 50, 300]) {
+    const flat = Array.from({ length: n }, (_, i) => ({ time: 1700000000 + i * 86400, open: 10, high: 10, low: 10, close: 10, volume: 0 }));
+    const out = lux(flat);
+    for (const o of luxalgoStyle.outputs) {
+      assert.equal(out[o.key].length, n, `${o.key} at length ${n}`);
+      assert.ok(out[o.key].every((v) => Number.isFinite(v) || Number.isNaN(v)), 'no Infinity or undefined');
+    }
+    assert.ok(out.buy.every((v) => v === 0));
+    assert.ok(out.sell.every((v) => v === 0));
+    assert.deepEqual(out.markers, []);
+    assert.ok(out.direction.slice(0, 9).every(Number.isNaN));
+  }
+  for (const key of ['buy', 'sell', 'direction']) {
+    assert.equal(luxalgoStyle.outputs.find((o) => o.key === key).visible, false);
+  }
+  for (const params of [{ atrLength: 0 }, { emaLength: 2.5 }, { sensitivity: -1 }, { sensitivity: Infinity }]) {
+    assert.throws(() => lux(bars, params), /must be/);
+  }
+});
+
+test('LuxAlgo-style signals mark reversals once, with correct direction, trails and labels', () => {
+  const b = [10, 10, 10, 14, 16, 17, 12, 9, 8, 13, 16, 17].map((close, i) => ({
+    time: 1700000000 + i * 86400, open: close, high: close + 0.5, low: close - 0.5, close, volume: 1,
+  }));
+  const out = lux(b, { atrLength: 2, sensitivity: 1, emaLength: 3, trendFilter: 'Off' });
+  assert.deepEqual(out.buy, [0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0]);
+  assert.deepEqual(out.sell, [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
+  assert.deepEqual(out.direction.slice(1), [-1, -1, 1, 1, 1, -1, -1, -1, 1, 1, 1]);
+  assert.equal(out.bullish[3], 11.25, 'ATR trail on the first bullish reversal');
+  assert.equal(out.bearish[6], 15.78125, 'ATR trail on the bearish reversal');
+  assert.deepEqual(out.markers.map((m) => [m.time, m.position, m.shape, m.text]), [
+    [b[3].time, 'belowBar', 'arrowUp', 'Buy'],
+    [b[6].time, 'aboveBar', 'arrowDown', 'Sell'],
+    [b[9].time, 'belowBar', 'arrowUp', 'Buy'],
+  ]);
+});
+
+test('LuxAlgo-style EMA filtering skips unconfirmed reversals without delaying signals', () => {
+  const unfiltered = lux(bars, { trendFilter: 'Off' });
+  const filtered = lux(bars);
+  let blocked = 0, allowed = 0;
+  for (let i = 0; i < bars.length; i++) {
+    for (const key of ['buy', 'sell']) {
+      const passes = key === 'buy' ? bars[i].close > filtered.trend[i] : bars[i].close < filtered.trend[i];
+      assert.equal(filtered[key][i], unfiltered[key][i] && passes ? 1 : 0, `${key} at ${i}`);
+      if (unfiltered[key][i]) passes ? allowed++ : blocked++;
+    }
+  }
+  assert.ok(blocked > 0 && allowed > 0, 'fixture exercises both sides of the filter');
+  assert.deepEqual(filtered.direction, unfiltered.direction, 'filter changes entries, not exit direction');
+});
+
+test('LuxAlgo-style history is identical when calculated one bar at a time (no look-ahead)', () => {
+  const full = lux(bars);
+  for (let n = 1; n <= bars.length; n++) {
+    const prefix = lux(bars.slice(0, n));
+    for (const o of luxalgoStyle.outputs) {
+      assert.deepEqual(prefix[o.key], full[o.key].slice(0, n), `${o.key}, prefix ${n}`);
+    }
+    assert.deepEqual(prefix.markers, full.markers.filter((m) => m.time <= bars[n - 1].time));
+  }
+});
+
+test('LuxAlgo-style hidden signals work in alert rules and the example strategy fills next-bar open', () => {
+  const out = lux(bars);
+  for (const key of ['buy', 'sell']) {
+    const fired = conditionFn(bars, luxStrategy.indicators)({ left: `lux.${key}`, op: '>', right: 0 });
+    assert.deepEqual(bars.map((_, i) => fired(i)), out[key].map(Boolean));
+    assert.ok(out[key].some(Boolean), `fixture includes ${key} signals`);
+  }
+  const result = backtest(bars, luxStrategy);
+  assert.ok(result.trades.some((t) => t.side === 'long'));
+  assert.ok(result.trades.some((t) => t.side === 'short'));
+  assert.ok(Number.isFinite(result.stats.netProfitPct));
+  assert.equal(result.equity.length, bars.length);
+  for (const trade of result.trades) {
+    const i = bars.findIndex((b) => b.time === trade.entryTime);
+    assert.equal(out[trade.side === 'long' ? 'buy' : 'sell'][i - 1], 1, 'signal precedes fill');
+    const slip = trade.side === 'long' ? 1.0005 : 0.9995;
+    assert.ok(near(trade.entryPrice, bars[i].open * slip));
+  }
 });

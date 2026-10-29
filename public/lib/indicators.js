@@ -2908,6 +2908,8 @@ export function indicatorProblems(def, { run = true } = {}) {
       outKeys.add(o.key);
       if (o.kind !== undefined && !["line", "histogram"].includes(o.kind))
         problems.push(`${at}: \`kind\` must be "line" or "histogram"`);
+      if (o.visible !== undefined && typeof o.visible !== "boolean")
+        problems.push(`${at}: \`visible\` must be true or false`);
       if (o.color !== undefined && (typeof o.color !== "string" || !o.color.trim()))
         problems.push(`${at}: \`color\` must be a colour like #2962ff`);
       if (

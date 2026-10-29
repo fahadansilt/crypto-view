@@ -707,7 +707,7 @@ export class ChartPane {
         this.main.attachPrimitive(sp);
         this.vpPrims.push(sp);
       }
-      const outs = def.outputs.filter((o) => Array.isArray(res[o.key]));
+      const outs = def.outputs.filter((o) => o.visible !== false && Array.isArray(res[o.key]));
       if (!outs.length) continue;
       const src = String(ind.params?.source || "");
       const parentPane = src.startsWith("ind:") ? paneOf[src.split(":")[1]] : undefined;
