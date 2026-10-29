@@ -272,10 +272,22 @@ export function initPanels(app) {
   function wlSymbols() {
     return app.state.watchlists[app.state.activeWatchlist] || [];
   }
+  function displayedSymbols() {
+    return app.state.watchlistView === "favourites" ? app.state.favourites : wlSymbols();
+  }
   function renderWatchlist() {
     const names = Object.keys(app.state.watchlists);
-    side.innerHTML = `<div class="wl-head"><select class="in" id="wlSel">${names.map((n) => `<option ${n === app.state.activeWatchlist ? "selected" : ""}>${esc(n)}</option>`).join("")}</select><button class="btn small" id="wlNew" title="New list">+ List</button><button class="btn small" id="wlDel" title="Delete this list">Delete</button></div>
-      <div style="padding:8px"><input class="in" id="wlAdd" placeholder="Add symbol (Enter)" style="width:100%"></div><div id="wlRows"></div>`;
+    side.innerHTML = `<div class="wl-head ${app.state.watchlistView === "favourites" ? "hidden" : ""}"><select class="in" id="wlSel">${names.map((n) => `<option ${n === app.state.activeWatchlist ? "selected" : ""}>${esc(n)}</option>`).join("")}</select><button class="btn small" id="wlNew" title="New list">+ List</button><button class="btn small" id="wlDel" title="Delete this list">Delete</button></div>
+      <div class="wl-views" role="group" aria-label="Coin list view"><button type="button" id="wlAll" aria-pressed="${app.state.watchlistView !== "favourites"}">Watchlist</button><button type="button" id="wlFavourites" aria-pressed="${app.state.watchlistView === "favourites"}">Favourites <span id="wlFavCount">${app.state.favourites.length}</span></button></div>
+      <div style="padding:8px"><input class="in" id="wlAdd" aria-label="Add symbol" placeholder="${app.state.watchlistView === "favourites" ? "Add favourite symbol (Enter)" : "Add symbol (Enter)"}" style="width:100%"></div><div id="wlRows"></div>`;
+    for (const [id, view] of [["wlAll", "watchlist"], ["wlFavourites", "favourites"]]) {
+      $("#" + id).onclick = () => {
+        app.state.watchlistView = view;
+        app.persist();
+        renderWatchlist();
+        refreshQuotes();
+      };
+    }
     $("#wlSel").onchange = (e) => {
       app.state.activeWatchlist = e.target.value;
       app.persist();
@@ -300,12 +312,18 @@ export function initPanels(app) {
     };
     $("#wlAdd").onkeydown = async (e) => {
       if (e.key !== "Enter" || !e.target.value.trim()) return;
+      const favourites = app.state.watchlistView === "favourites";
+      const watchlist = app.state.activeWatchlist;
       try {
         const r = await api.get(
           `/api/resolve?symbol=${encodeURIComponent(e.target.value.trim())}`,
         );
-        const list = wlSymbols();
-        if (!list.includes(r.id)) list.push(r.id);
+        if (favourites) {
+          if (!app.isFavourite(r.id)) app.toggleFavourite(r.id);
+        } else {
+          const list = app.state.watchlists[watchlist];
+          if (list && !list.includes(r.id)) list.push(r.id);
+        }
         e.target.value = "";
         app.persist();
         drawRows();
@@ -317,6 +335,10 @@ export function initPanels(app) {
     $("#wlRows").onclick = (e) => {
       const row = e.target.closest(".wl-row");
       if (!row) return;
+      if (e.target.closest("[data-favourite]")) {
+        app.toggleFavourite(row.dataset.sym);
+        return;
+      }
       if (e.target.closest(".x")) {
         app.state.watchlists[app.state.activeWatchlist] = wlSymbols().filter(
           (s) => s !== row.dataset.sym,
@@ -331,19 +353,29 @@ export function initPanels(app) {
   function drawRows() {
     const box = $("#wlRows");
     if (!box) return;
+    const focused = box.contains(document.activeElement) ? document.activeElement.closest("[data-favourite]")?.dataset.favourite : null;
+    const count = $("#wlFavCount");
+    if (count) count.textContent = app.state.favourites.length;
     const cur = app.active?.cfg.symbol;
     box.innerHTML =
-      wlSymbols()
+      displayedSymbols()
         .map((s) => {
           const q = quotes[s] || {};
           const live = app.prices[s] ?? q.price;
-          return `<div class="wl-row ${s === cur ? "current" : ""}" data-sym="${esc(s)}"><span class="sym">${esc(ticker(s))} <span class="ex">${esc(exchange(s))}</span></span><span class="px">${fmtPrice(live)}</span><span class="chg ${q.changePct >= 0 ? "up" : "down"}">${fmtPct(q.changePct)}</span><button class="x" title="Remove"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
+          const remove = app.state.watchlistView === "favourites" ? '<span></span>' : `<button type="button" class="x" aria-label="Remove ${esc(ticker(s))} from watchlist" title="Remove from watchlist"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+          return `<div class="wl-row ${s === cur ? "current" : ""}" data-sym="${esc(s)}">${app.favouriteButton(s)}<span class="sym" title="${esc(s)}">${esc(ticker(s))}<span class="ex">${esc(exchange(s))}</span></span><span class="px">${fmtPrice(live)}</span><span class="chg ${q.changePct >= 0 ? "up" : "down"}">${fmtPct(q.changePct)}</span>${remove}</div>`;
         })
         .join("") ||
-      '<div class="pad hint-text">Empty list. Add a symbol above.</div>';
+      (app.state.watchlistView === "favourites"
+        ? '<div class="wl-empty"><b>No favourites yet</b><p>Mark a coin with the star beside its name or the star next to the chart symbol. You can also add a symbol above.</p></div>'
+        : '<div class="pad hint-text">Empty list. Add a symbol above.</div>');
+    if (focused) {
+      const button = [...box.querySelectorAll("[data-favourite]")].find((el) => el.dataset.favourite === focused);
+      (button || box.querySelector("[data-favourite]") || $("#wlFavourites"))?.focus();
+    }
   }
   async function refreshQuotes() {
-    const syms = [...new Set([...wlSymbols(), ...paperSymbols()])];
+    const syms = [...new Set([...wlSymbols(), ...app.state.favourites, ...paperSymbols()])];
     if (!syms.length) return;
     try {
       const q = await api.quotes(syms);
@@ -1635,6 +1667,10 @@ export function initPanels(app) {
   P.showBottom = showBottom;
   P.showSide = showSide;
   P.openAlertDialog = openAlertDialog;
+  P.onFavouritesChange = () => {
+    if (sideTab === "watchlist") drawRows();
+    refreshQuotes();
+  };
   let lastSymbol = null;
   P.onActiveChange = () => {
     if (sideTab === "watchlist") drawRows();

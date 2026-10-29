@@ -630,6 +630,41 @@ table.t tbody tr:hover {
 }
 
 /* watchlist */
+.favourite-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.favourite-toggle:hover { background: var(--gold-soft); color: var(--gold); }
+.favourite-toggle.is-favourite { color: var(--gold); }
+.favourite-toggle.is-favourite svg { fill: currentColor; }
+.favourite-toggle:focus-visible,
+.wl-views button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wl-views { display: flex; gap: 4px; padding: 8px 8px 0; }
+.wl-views button {
+  flex: 1;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.wl-views button[aria-pressed="true"] { background: var(--accent-soft); color: var(--text); border-color: var(--border); }
+#wlFavCount { display: inline-block; min-width: 18px; margin-left: 4px; border-radius: 9px; background: var(--gold-soft); color: var(--gold); padding: 0 4px; font-size: 11px; }
+.wl-empty { padding: 20px 14px; text-align: center; }
+.wl-empty p { color: var(--muted); font-size: 12px; margin-bottom: 0; }
+.list .item.symbol-item { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; }
+.symbol-item .symbol-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wl-head {
   display: flex;
   gap: 6px;
@@ -641,8 +676,8 @@ table.t tbody tr:hover {
 }
 .wl-row {
   display: grid;
-  grid-template-columns: 1fr auto 64px 18px;
-  gap: 8px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 54px 18px;
+  gap: 6px;
   align-items: center;
   padding: 6px 10px;
   cursor: pointer;
@@ -661,6 +696,7 @@ table.t tbody tr:hover {
   white-space: nowrap;
 }
 .wl-row .ex {
+  display: block;
   color: var(--muted);
   font-size: 11px;
   font-weight: 400;
@@ -681,7 +717,8 @@ table.t tbody tr:hover {
   color: var(--muted);
   padding: 0;
 }
-.wl-row:hover .x {
+.wl-row:hover .x,
+.wl-row:focus-within .x {
   opacity: 1;
 }
 .wl-row .x svg {

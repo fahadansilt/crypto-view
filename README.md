@@ -74,6 +74,8 @@ Keep the published port bound to `127.0.0.1`, and proxy Nginx to `http://127.0.0
 | Seasonals | Each year's path from 1 January, the average year, and a monthly returns table |
 | Also | Compare symbols, log scale, chart image download, CSV export of bars and indicator values, light and dark themes |
 
+**Favourite coins:** Click the star beside a watchlist coin, a symbol-search result, or the current chart symbol to mark/unmark it. Open **Watchlist → Favourites** to see just your marked symbols, with a live count and quotes. You can add a symbol directly in that view too. Favourites are saved locally with your chart state; spot and perpetual markets are kept separate.
+
 ## Where the data comes from
 
 All free and public, with automatic fallbacks:

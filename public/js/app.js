@@ -14,6 +14,7 @@ import { ChartShortcuts, ChartHistory } from "./shortcuts.js";
 const $ = (s, el = document) => el.querySelector(s);
 const TF_QUICK = ["1m", "5m", "15m", "1h", "4h", "1D", "1W"];
 const LAYOUTS = { 1: 1, "2v": 2, "2h": 2, 3: 3, 4: 4, 6: 6, 8: 8, 16: 16 };
+const FAVOURITE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2-4.5-4.4 6.3-.9z"/></svg>';
 const DEFAULT_WATCHLISTS = {
   Main: [
     "BINANCE:BTCUSDT",
@@ -59,12 +60,17 @@ class App {
       ],
       watchlists: DEFAULT_WATCHLISTS,
       activeWatchlist: "Main",
+      favourites: [],
+      watchlistView: "watchlist",
       drawings: {},
       settings: {},
       paper: null,
       strategies: {},
       ...state,
     };
+    this.state.favourites = [...new Set((Array.isArray(this.state.favourites) ? this.state.favourites : [])
+      .filter((symbol) => typeof symbol === "string" && symbol.trim()))];
+    if (this.state.watchlistView !== "favourites") this.state.watchlistView = "watchlist";
     this.settings = {
       theme: "dark",
       volume: true,
@@ -285,6 +291,8 @@ class App {
       this.persist();
     };
     $("#symbolBtn").onclick = () => this.openSymbolSearch();
+    $("#favouriteBtn").innerHTML = FAVOURITE_ICON;
+    $("#favouriteBtn").onclick = () => this.toggleFavourite(this.active?.cfg.symbol);
     $("#indicatorsBtn").onclick = () => this.openIndicatorPicker();
     $("#compareBtn").onclick = () =>
       this.openSymbolSearch(
@@ -341,6 +349,12 @@ class App {
     $("#symbolLabel").textContent = ticker(p.cfg.symbol);
     $("#symbolBtn").title =
       `${p.cfg.symbol} — change symbol (or just start typing)`;
+    const favourite = this.isFavourite(p.cfg.symbol);
+    const favouriteButton = $("#favouriteBtn");
+    favouriteButton.classList.toggle("is-favourite", favourite);
+    favouriteButton.setAttribute("aria-pressed", String(favourite));
+    favouriteButton.title = `${favourite ? "Unmark" : "Mark"} ${ticker(p.cfg.symbol)} as favourite`;
+    favouriteButton.setAttribute("aria-label", favouriteButton.title);
     document
       .querySelectorAll("#tfButtons button")
       .forEach((b) => b.classList.toggle("active", b.dataset.tf === p.cfg.tf));
@@ -369,6 +383,25 @@ class App {
     saved = saved.filter((symbol) => typeof symbol === "string" && symbol.trim());
     const openCharts = this.panes.map((p) => p.cfg.symbol).filter(Boolean);
     return [...new Set([...saved, ...openCharts])].slice(0, 10);
+  }
+
+  isFavourite(symbol) {
+    return this.state.favourites.includes(symbol);
+  }
+
+  favouriteButton(symbol) {
+    const selected = this.isFavourite(symbol);
+    const label = `${selected ? "Unmark" : "Mark"} ${ticker(symbol)} as favourite`;
+    return `<button type="button" class="favourite-toggle ${selected ? "is-favourite" : ""}" data-favourite="${esc(symbol)}" aria-pressed="${selected}" aria-label="${esc(label)}" title="${esc(label)}">${FAVOURITE_ICON}</button>`;
+  }
+
+  toggleFavourite(symbol) {
+    if (typeof symbol !== "string" || !symbol.trim()) return;
+    if (this.isFavourite(symbol)) this.state.favourites = this.state.favourites.filter((s) => s !== symbol);
+    else this.state.favourites.push(symbol);
+    this.syncToolbar();
+    this.panels?.onFavouritesChange?.();
+    this.persist();
   }
 
   rememberSymbol(symbol) {
@@ -469,28 +502,29 @@ class App {
     };
     const draw = () => {
       if (!q.value.trim()) {
-        results = this.recentSymbols().map((symbol) => ({
+        results = [...this.state.favourites, ...this.recentSymbols().filter((s) => !this.isFavourite(s))].map((symbol) => ({
           symbol,
-          type: "Recent",
+          type: this.isFavourite(symbol) ? "Favourite" : "Recent",
           exchange: symbol.includes(":") ? symbol.split(":", 1)[0] : "",
         }));
-        list.innerHTML = results.length
-          ? `<div class="group">Recent symbols</div>${results
-              .map(
-                (r, i) =>
-                  `<div class="item ${i === sel ? "sel" : ""}" data-i="${i}"><span><b>${esc(ticker(r.symbol))}</b></span><span class="meta">Recent${r.exchange ? ` · ${esc(r.exchange)}` : ""}</span></div>`,
-              )
-              .join("")}`
-          : '<div class="hint-text" style="padding:10px">Your recent symbols will appear here.</div>';
-        return;
       }
+      sel = Math.max(0, Math.min(sel, results.length - 1));
+      let group = "";
       list.innerHTML = results
         .map(
-          (r, i) =>
-            `<div class="item ${i === sel ? "sel" : ""}" data-i="${i}"><span><b>${esc(ticker(r.symbol))}</b> <span class="muted">${esc(r.name || "")}</span></span><span class="meta">${esc(r.type || "")} · ${esc(r.exchange || "")}</span></div>`,
+          (r, i) => {
+            let heading = "";
+            if (!q.value.trim() && r.type !== group) {
+              group = r.type;
+              heading = `<div class="group">${group === "Favourite" ? "Favourites" : "Recent symbols"}</div>`;
+            }
+            return `${heading}<div class="item symbol-item ${i === sel ? "sel" : ""}" data-i="${i}">${this.favouriteButton(r.symbol)}<span class="symbol-name"><b>${esc(ticker(r.symbol))}</b> <span class="muted">${esc(r.name || "")}</span></span><span class="meta">${esc(r.type || "")} · ${esc(r.exchange || "")}</span></div>`;
+          },
         )
         .join("") ||
-        `<div class="item" data-raw="1"><span>Open <b>${esc(q.value.trim().toUpperCase())}</b></span><span class="meta">press Enter</span></div>`;
+        (q.value.trim()
+          ? `<div class="item" data-raw="1"><span>Open <b>${esc(q.value.trim().toUpperCase())}</b></span><span class="meta">press Enter</span></div>`
+          : '<div class="hint-text" style="padding:10px">Your favourites and recent symbols will appear here. Use the star beside a coin to mark it.</div>');
     };
     const run = async () => {
       const v = q.value.trim();
@@ -530,6 +564,15 @@ class App {
       }
     };
     list.onclick = (e) => {
+      const favourite = e.target.closest("[data-favourite]");
+      if (favourite) {
+        const symbol = favourite.dataset.favourite;
+        this.toggleFavourite(symbol);
+        draw();
+        const button = [...list.querySelectorAll("[data-favourite]")].find((el) => el.dataset.favourite === symbol);
+        (button || q).focus();
+        return;
+      }
       const it = e.target.closest(".item");
       if (!it) return;
       pick(

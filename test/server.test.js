@@ -30,9 +30,15 @@ test('candles come back sorted with OHLCV', async () => {
 });
 
 test('state round-trips', async () => {
-  await fetch(`${base}/api/state`, { method: 'PUT', headers: H, body: JSON.stringify({ watchlists: { Main: ['BINANCE:BTCUSDT'] } }) });
+  await fetch(`${base}/api/state`, { method: 'PUT', headers: H, body: JSON.stringify({ watchlists: { Main: ['BINANCE:BTCUSDT'] }, favourites: ['BINANCE:ETHUSDT', 'BINANCE_FUTURES:ETHUSDT'], watchlistView: 'favourites' }) });
   const s = await (await fetch(`${base}/api/state`)).json();
   assert.deepEqual(s.watchlists, { Main: ['BINANCE:BTCUSDT'] });
+  assert.deepEqual(s.favourites, ['BINANCE:ETHUSDT', 'BINANCE_FUTURES:ETHUSDT'], 'favourites retain exchange-specific identities');
+  assert.equal(s.watchlistView, 'favourites');
+  await fetch(`${base}/api/state`, { method: 'PUT', headers: H, body: JSON.stringify({ favourites: [] }) });
+  const cleared = await (await fetch(`${base}/api/state`)).json();
+  assert.deepEqual(cleared.favourites, []);
+  assert.deepEqual(cleared.watchlists, s.watchlists, 'unmarking favourites preserves watchlists');
 });
 
 test('alerts can be created, listed and deleted', async () => {
