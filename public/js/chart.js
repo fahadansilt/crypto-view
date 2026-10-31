@@ -1113,20 +1113,20 @@ export class ChartPane {
     const socket = this.ws;
     const symbol = this.cfg.symbol;
     const tf = this.cfg.tf;
+    const getDelay = () => (this.app.active === this ? 500 : 1500);
     const tick = async () => {
       if (this.ws !== socket || socket?.readyState !== WebSocket.OPEN || this.replay) return;
       try {
         const r = await api.candles(symbol, tf, 5);
-        if (this.ws === socket && socket.readyState === WebSocket.OPEN) this.merge(r.candles);
+        if (this.ws === socket && socket.readyState === WebSocket.OPEN && !this.replay) this.merge(r.candles);
       } catch {
         /* the WebSocket can continue while HTTP retries on its next tick */
       }
       if (this.ws === socket && socket.readyState === WebSocket.OPEN && !this.replay) {
-        const delay = this.app.active === this ? 1000 : 3000;
-        this.wsPollTimer = setTimeout(tick, delay);
+        this.wsPollTimer = setTimeout(tick, getDelay());
       }
     };
-    this.wsPollTimer = setTimeout(tick, 1000);
+    this.wsPollTimer = setTimeout(tick, getDelay());
   }
 
   stopSocketFeed() {
@@ -1138,23 +1138,28 @@ export class ChartPane {
     const crypto = ["BINANCE", "BINANCE_FUTURES", "COINBASE", "KRAKEN"].includes(
       exchange(this.cfg.symbol),
     );
-    const active = this.app.active === this;
-    const kind = crypto ? (active ? 1000 : 3000) : (active ? 3000 : 5000);
+    const getDelay = () => {
+      const active = this.app.active === this;
+      return crypto ? (active ? 200 : 500) : (active ? 1000 : 2000);
+    };
     const tick = async () => {
+      if (this.replay || !this.liveTimer) return;
       try {
         const r = await api.candles(this.cfg.symbol, this.cfg.tf, 5);
+        if (this.replay || !this.liveTimer) return;
         this.merge(r.candles);
       } catch {
         /* keep trying */
       }
+      if (this.replay || !this.liveTimer) return;
       if (this.forcePollingUntil && Date.now() >= this.forcePollingUntil) {
         this.forcePollingUntil = 0;
         this.startLive();
         return;
       }
-      this.liveTimer = setTimeout(tick, kind);
+      this.liveTimer = setTimeout(tick, getDelay());
     };
-    this.liveTimer = setTimeout(tick, kind);
+    this.liveTimer = setTimeout(tick, 0);
   }
 
   stopLive() {
@@ -1223,11 +1228,11 @@ export class ChartPane {
       for (const [tf, h] of Object.entries(this.mtf || {})) if (now - h.at > 60000) this.loadMtf(tf);
     }
     const active = this.app.active === this;
-    if (simple && this.cfg.indicators?.length && now - (this.lastFull || 0) > (active ? 1500 : 5000)) {
+    if (simple && this.cfg.indicators?.length && now - (this.lastFull || 0) > (active ? 200 : 1000)) {
       this.lastFull = now;
       this.renderIndicators();
       this.updateLegend();
-    } else if (!simple && now - (this.lastFull || 0) > (active ? 1200 : 4000)) {
+    } else if (!simple && now - (this.lastFull || 0) > (active ? 200 : 1000)) {
       this.lastFull = now;
       this.render(false);
     }
