@@ -251,11 +251,17 @@ export class ChartPane {
     });
     this.chart.subscribeCrosshairMove((p) => this.onCrosshair(p));
     this.chart.subscribeClick((p) => {
+      if (this.justDragged || Date.now() - (this.lastDrawingActionTime || 0) < 600) return;
       if (this.app.tool === "cursor") this.onClick(p);
     });
     // Lightweight Charts drops a second click that lands within 500ms of the first (it waits for a
     // double-click), so drawing tools read native clicks instead.
     this.chartEl.addEventListener("click", (e) => {
+      if (this.justDragged || Date.now() - (this.lastDrawingActionTime || 0) < 600) {
+        e.stopPropagation();
+        e.preventDefault();
+        return;
+      }
       if (this.app.tool === "cursor") return;
       const r = this.chartEl.getBoundingClientRect();
       const x = e.clientX - r.left,
@@ -279,7 +285,9 @@ export class ChartPane {
     );
     this.chartEl.addEventListener("pointermove", (e) => this.onChartHover(e));
     this.chartEl.addEventListener("pointerleave", () => {
-      if (!this.dragState) this.chartEl.style.cursor = "";
+      if (!this.dragState) {
+        this.chartEl.classList.remove("cursor-grab", "cursor-crosshair");
+      }
     });
     this.chartEl.addEventListener("dblclick", (e) => {
       if (this.app.tool !== "cursor") return;
@@ -989,7 +997,7 @@ export class ChartPane {
     }
     if (tool === "cursor") {
       if (!p.point) return;
-      if (Date.now() - (this.lastDrawingActionTime || 0) < 300) return;
+      if (this.justDragged || Date.now() - (this.lastDrawingActionTime || 0) < 600) return;
       this.drawings.selected = this.drawings.hitTest(p.point.x, p.point.y);
       this.drawings.update();
       return;
@@ -1056,7 +1064,6 @@ export class ChartPane {
 
   onChartHover(e) {
     if (this.dragState) return;
-    if (this.app.tool !== "cursor") return;
     const r = this.chartEl.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
@@ -1066,20 +1073,22 @@ export class ChartPane {
       y >= 0 &&
       y <= this.chart.panes()[0].getHeight();
     if (!inPlot) {
-      if (this.chartEl.style.cursor) this.chartEl.style.cursor = "";
+      this.chartEl.classList.remove("cursor-grab", "cursor-crosshair");
       return;
     }
     const handle = this.drawings.selected
       ? this.drawings.hitTestHandle(x, y, this.drawings.selected)
       : null;
     if (handle) {
-      this.chartEl.style.cursor = "crosshair";
+      this.chartEl.classList.remove("cursor-grab");
+      this.chartEl.classList.add("cursor-crosshair");
     } else {
       const hit = this.drawings.hitTest(x, y);
       if (hit) {
-        this.chartEl.style.cursor = "grab";
+        this.chartEl.classList.remove("cursor-crosshair");
+        this.chartEl.classList.add("cursor-grab");
       } else {
-        if (this.chartEl.style.cursor) this.chartEl.style.cursor = "";
+        this.chartEl.classList.remove("cursor-grab", "cursor-crosshair");
       }
     }
   }
@@ -1097,16 +1106,18 @@ export class ChartPane {
       y <= this.chart.panes()[0].getHeight();
     if (!inPlot) return;
 
-    if (this.drawings.temp) return;
+    if (this.dragCleanup) {
+      try { this.dragCleanup(); } catch {}
+    }
 
-    const isCursor = this.app.tool === "cursor";
+    if (this.drawings.temp) return;
 
     let handle = this.drawings.selected
       ? this.drawings.hitTestHandle(x, y, this.drawings.selected)
       : null;
     let hit = null;
 
-    if (!handle && isCursor) {
+    if (!handle) {
       hit = this.drawings.hitTest(x, y);
       if (hit) {
         if (hit !== this.drawings.selected) {
@@ -1121,8 +1132,15 @@ export class ChartPane {
 
     e.stopPropagation();
     e.preventDefault();
+    if (this.app.tool !== "cursor") {
+      this.app.setTool("cursor");
+    }
     this.app.setActive(this);
     this.lastDrawingActionTime = Date.now();
+
+    try {
+      e.target.setPointerCapture?.(e.pointerId);
+    } catch {}
 
     const startLogical = this.chart.timeScale().coordinateToLogical(x);
     const startPrice = this.main.coordinateToPrice(y);
@@ -1133,6 +1151,8 @@ export class ChartPane {
       drawing: targetDrawing,
       handleIndex: handle ? handle.index : null,
       handleRole: handle ? handle.role : null,
+      pointerId: e.pointerId,
+      targetEl: e.target,
       startX: x,
       startY: y,
       startLogical,
@@ -1145,7 +1165,9 @@ export class ChartPane {
     };
 
     this.chart.applyOptions({ handleScroll: false, handleScale: false });
-    document.body.style.cursor = handle ? "crosshair" : "grabbing";
+    this.chartEl.classList.remove("cursor-grab", "cursor-crosshair");
+    this.chartEl.classList.add(handle ? "cursor-crosshair" : "cursor-grabbing");
+    document.body.classList.add(handle ? "cursor-crosshair" : "cursor-grabbing");
 
     const onMove = (moveEv) => {
       if (!this.dragState) return;
@@ -1158,8 +1180,6 @@ export class ChartPane {
         this.dragState.moved = true;
       }
       if (this.dragState.moved) {
-        document.body.style.cursor =
-          this.dragState.type === "handle" ? "crosshair" : "grabbing";
         this.onDragMove(currX, currY);
       }
     };
@@ -1168,13 +1188,22 @@ export class ChartPane {
       window.removeEventListener("pointermove", onMove, { capture: true });
       window.removeEventListener("pointerup", onUp, { capture: true });
       window.removeEventListener("pointercancel", onUp, { capture: true });
+      window.removeEventListener("mousemove", onMove, { capture: true });
+      window.removeEventListener("mouseup", onUp, { capture: true });
+      if (this.dragState?.targetEl && this.dragState?.pointerId != null) {
+        try {
+          this.dragState.targetEl.releasePointerCapture?.(this.dragState.pointerId);
+        } catch {}
+      }
       this.dragCleanup = null;
-      document.body.style.cursor = "";
-      this.chartEl.style.cursor = "";
+      this.chartEl.classList.remove("cursor-grab", "cursor-grabbing", "cursor-crosshair");
+      document.body.classList.remove("cursor-grab", "cursor-grabbing", "cursor-crosshair");
       this.chart.applyOptions({ handleScroll: true, handleScale: true });
 
       if (this.dragState) {
         if (this.dragState.moved) {
+          this.justDragged = true;
+          setTimeout(() => { this.justDragged = false; }, 600);
           this.app.saveDrawings(this.cfg.symbol, this.drawings.items);
         }
         this.lastDrawingActionTime = Date.now();
@@ -1186,6 +1215,8 @@ export class ChartPane {
     window.addEventListener("pointermove", onMove, { capture: true });
     window.addEventListener("pointerup", onUp, { capture: true });
     window.addEventListener("pointercancel", onUp, { capture: true });
+    window.addEventListener("mousemove", onMove, { capture: true });
+    window.addEventListener("mouseup", onUp, { capture: true });
   }
 
   onDragMove(x, y) {
@@ -1200,8 +1231,12 @@ export class ChartPane {
       startPrice,
     } = this.dragState;
 
-    const logical = this.chart.timeScale().coordinateToLogical(x);
-    const price = this.main.coordinateToPrice(y);
+    const timeScale = this.chart.timeScale();
+    const pane0 = this.chart.panes()[0];
+    const paneH = pane0 ? pane0.getHeight() : 400;
+    const clampedY = Math.max(0, Math.min(paneH - 1, y));
+    const logical = timeScale.coordinateToLogical(x);
+    const price = this.main.coordinateToPrice(clampedY);
     if (logical == null || price == null) return;
     const time = this.timeOfLogical(logical);
     if (time == null) return;

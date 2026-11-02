@@ -149,3 +149,91 @@ test('DrawingLayer: handles for parallel channel', () => {
   const hitBaseline = layer.hitTest(pane.timeToX(200), pane.series.priceToCoordinate(125));
   assert.equal(hitBaseline, channel);
 });
+
+test('DrawingLayer: handles and hit test for fib retracement', () => {
+  const pane = mockPane();
+  const layer = new DrawingLayer(pane);
+  layer.attached({ series: pane.series, requestUpdate: () => {} });
+
+  const fib = {
+    id: '5',
+    type: 'fib',
+    points: [
+      { time: 100, price: 100 },
+      { time: 300, price: 200 },
+    ],
+  };
+  layer.setItems([fib]);
+  layer.selected = fib;
+
+  const handles = layer.getHandles(fib);
+  assert.equal(handles.length, 2);
+  assert.equal(handles[0].index, 0);
+  assert.equal(handles[1].index, 1);
+
+  // Handle hit test
+  const hitHandle = layer.hitTestHandle(handles[0].x, handles[0].y);
+  assert.ok(hitHandle);
+  assert.equal(hitHandle.index, 0);
+
+  // Hit test on diagonal line
+  const hitDiag = layer.hitTest(pane.timeToX(200), pane.series.priceToCoordinate(150));
+  assert.equal(hitDiag, fib);
+
+  // Hit test on a fib level (e.g. 0.5 level: price = 200 + (100 - 200)*0.5 = 150)
+  const hitLevel = layer.hitTest(pane.timeToX(150), pane.series.priceToCoordinate(150));
+  assert.equal(hitLevel, fib);
+});
+
+test('DrawingLayer: handles and hit test for long and short position', () => {
+  const pane = mockPane();
+  const layer = new DrawingLayer(pane);
+  layer.attached({ series: pane.series, requestUpdate: () => {} });
+
+  const longPos = {
+    id: '6',
+    type: 'long',
+    points: [
+      { time: 100, price: 100 },
+      { time: 300, price: 90 },
+    ],
+  };
+  layer.setItems([longPos]);
+  layer.selected = longPos;
+
+  const handles = layer.getHandles(longPos);
+  assert.equal(handles.length, 2);
+
+  // Hit test inside the position box
+  const hit = layer.hitTest(pane.timeToX(200), pane.series.priceToCoordinate(105));
+  assert.equal(hit, longPos);
+});
+
+test('DrawingLayer: handles and hit test for vline and measure', () => {
+  const pane = mockPane();
+  const layer = new DrawingLayer(pane);
+  layer.attached({ series: pane.series, requestUpdate: () => {} });
+
+  const vline = {
+    id: '7',
+    type: 'vline',
+    points: [{ time: 200, price: 100 }],
+  };
+  const measure = {
+    id: '8',
+    type: 'measure',
+    points: [
+      { time: 100, price: 100 },
+      { time: 300, price: 150 },
+    ],
+  };
+  layer.setItems([vline, measure]);
+
+  // Vline hit test
+  const hitV = layer.hitTest(pane.timeToX(200) + 2, 200);
+  assert.equal(hitV, vline);
+
+  // Measure hit test inside box (away from the vertical line at time 200)
+  const hitM = layer.hitTest(pane.timeToX(250), pane.series.priceToCoordinate(120));
+  assert.equal(hitM, measure);
+});

@@ -346,16 +346,20 @@ export class DrawingLayer {
         break;
     }
     if (active) {
-      ctx.fillStyle = "#fff";
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = color || "#2962ff";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
+      ctx.shadowBlur = 4;
       const handles = this.getHandles(d, size);
       for (const h of handles) {
         ctx.beginPath();
-        ctx.arc(h.x, h.y, 4.5, 0, Math.PI * 2);
+        ctx.arc(h.x, h.y, 5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
+      ctx.restore();
     }
   }
 
@@ -401,7 +405,7 @@ export class DrawingLayer {
     if (!d || this.pane?.cfg?.hideDrawings) return null;
     const handles = this.getHandles(d);
     let best = null;
-    let bestD = 10;
+    let bestD = 15;
     for (const h of handles) {
       const dist = Math.hypot(x - h.x, y - h.y);
       if (dist < bestD) {
@@ -416,7 +420,7 @@ export class DrawingLayer {
   hitTest(x, y) {
     if (this.pane?.cfg?.hideDrawings) return null;
     let best = null,
-      bestD = 9;
+      bestD = 14;
     const segDist = (p, q) => {
       const dx = q.x - p.x,
         dy = q.y - p.y,
@@ -430,6 +434,7 @@ export class DrawingLayer {
       const pts = d.points.map((p) => ({
         x: this.x(p.time),
         y: this.y(p.price),
+        ...p,
       }));
       if (pts.some((p) => p.x == null || p.y == null)) continue;
       const [a, b, c] = pts;
@@ -437,13 +442,13 @@ export class DrawingLayer {
       if (d.type === "hline") {
         dist = Math.abs(y - a.y);
       } else if (d.type === "hray") {
-        dist = x >= a.x - 4 ? Math.abs(y - a.y) : Infinity;
+        dist = x >= a.x - 10 ? Math.abs(y - a.y) : Infinity;
       } else if (d.type === "vline") {
         dist = Math.abs(x - a.x);
       } else if (d.type === "text") {
         dist =
-          x >= a.x - 4 && x <= a.x + 120 && Math.abs(y - a.y) < 14
-            ? 0
+          x >= a.x - 8 && x <= a.x + 140 && Math.abs(y - a.y) < 20
+            ? 3
             : Infinity;
       } else if (d.type === "rect") {
         const xMin = Math.min(a.x, b.x),
@@ -451,7 +456,7 @@ export class DrawingLayer {
         const yMin = Math.min(a.y, b.y),
           yMax = Math.max(a.y, b.y);
         const inside =
-          x >= xMin - 4 && x <= xMax + 4 && y >= yMin - 4 && y <= yMax + 4;
+          x >= xMin - 6 && x <= xMax + 6 && y >= yMin - 6 && y <= yMax + 6;
         dist = inside ? 3 : Infinity;
       } else if (d.type === "channel") {
         const d1 = segDist(a, b);
@@ -463,8 +468,9 @@ export class DrawingLayer {
         }
         dist = Math.min(d1, d2);
       } else if (d.type === "fib") {
-        const xMin = Math.min(a.x, b.x) - 4,
-          xMax = Math.max(a.x, b.x) + 4;
+        const xMin = Math.min(a.x, b.x) - 6,
+          xMax = Math.max(a.x, b.x) + 6;
+        dist = Math.min(dist, segDist(a, b));
         if (x >= xMin && x <= xMax) {
           for (const lv of FIB_LEVELS) {
             const p = b.price + (a.price - b.price) * lv;
@@ -473,10 +479,10 @@ export class DrawingLayer {
           }
         }
       } else if (d.type === "measure") {
-        const xMin = Math.min(a.x, b.x) - 4,
-          xMax = Math.max(a.x, b.x) + 4;
-        const yMin = Math.min(a.y, b.y) - 4,
-          yMax = Math.max(a.y, b.y) + 4;
+        const xMin = Math.min(a.x, b.x) - 6,
+          xMax = Math.max(a.x, b.x) + 6;
+        const yMin = Math.min(a.y, b.y) - 6,
+          yMax = Math.max(a.y, b.y) + 6;
         dist = x >= xMin && x <= xMax && y >= yMin && y <= yMax ? 3 : Infinity;
       } else if (d.type === "long" || d.type === "short") {
         const dir = d.type === "long" ? 1 : -1;
@@ -488,10 +494,10 @@ export class DrawingLayer {
         const x1 = Math.min(a.x, b.x);
         const w = Math.max(Math.abs(b.x - a.x), 40);
         if (ys != null && yt != null) {
-          const yMin = Math.min(a.y, ys, yt) - 4;
-          const yMax = Math.max(a.y, ys, yt) + 4;
+          const yMin = Math.min(a.y, ys, yt) - 6;
+          const yMax = Math.max(a.y, ys, yt) + 6;
           dist =
-            x >= x1 - 4 && x <= x1 + w + 4 && y >= yMin && y <= yMax
+            x >= x1 - 6 && x <= x1 + w + 6 && y >= yMin && y <= yMax
               ? 3
               : Infinity;
         }

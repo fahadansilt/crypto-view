@@ -322,6 +322,22 @@ select.tb option {
   position: absolute;
   inset: 0;
 }
+.chart.cursor-grab,
+.chart.cursor-grab canvas {
+  cursor: grab !important;
+}
+.chart.cursor-grabbing,
+.chart.cursor-grabbing canvas,
+body.cursor-grabbing,
+body.cursor-grabbing * {
+  cursor: grabbing !important;
+}
+.chart.cursor-crosshair,
+.chart.cursor-crosshair canvas,
+body.cursor-crosshair,
+body.cursor-crosshair * {
+  cursor: crosshair !important;
+}
 .pane .price-countdown {
   position: absolute;
   right: 0;
