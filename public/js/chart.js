@@ -272,6 +272,30 @@ export class ChartPane {
       });
     });
     this.drawings = new DrawingLayer(this);
+    this.chartEl.addEventListener(
+      "pointerdown",
+      (e) => this.onChartPointerDown(e),
+      { capture: true },
+    );
+    this.chartEl.addEventListener("pointermove", (e) => this.onChartHover(e));
+    this.chartEl.addEventListener("pointerleave", () => {
+      if (!this.dragState) this.chartEl.style.cursor = "";
+    });
+    this.chartEl.addEventListener("dblclick", (e) => {
+      if (this.app.tool !== "cursor") return;
+      const r = this.chartEl.getBoundingClientRect();
+      const x = e.clientX - r.left,
+        y = e.clientY - r.top;
+      const hit = this.drawings.hitTest(x, y);
+      if (hit && hit.type === "text") {
+        const newText = prompt("Edit note text:", hit.text || "");
+        if (newText !== null && newText.trim() !== "") {
+          hit.text = newText;
+          this.drawings.update();
+          this.app.saveDrawings(this.cfg.symbol, this.drawings.items);
+        }
+      }
+    });
     this.makeMainSeries();
   }
 
@@ -965,6 +989,7 @@ export class ChartPane {
     }
     if (tool === "cursor") {
       if (!p.point) return;
+      if (Date.now() - (this.lastDrawingActionTime || 0) < 300) return;
       this.drawings.selected = this.drawings.hitTest(p.point.x, p.point.y);
       this.drawings.update();
       return;
@@ -1025,6 +1050,214 @@ export class ChartPane {
     this.chart.applyOptions({ handleScroll: on, handleScale: on });
     if (on && this.drawings.temp) {
       this.drawings.temp = null;
+      this.drawings.update();
+    }
+  }
+
+  onChartHover(e) {
+    if (this.dragState) return;
+    if (this.app.tool !== "cursor") return;
+    const r = this.chartEl.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const inPlot =
+      x >= 0 &&
+      x <= this.chart.timeScale().width() &&
+      y >= 0 &&
+      y <= this.chart.panes()[0].getHeight();
+    if (!inPlot) {
+      if (this.chartEl.style.cursor) this.chartEl.style.cursor = "";
+      return;
+    }
+    const handle = this.drawings.selected
+      ? this.drawings.hitTestHandle(x, y, this.drawings.selected)
+      : null;
+    if (handle) {
+      this.chartEl.style.cursor = "crosshair";
+    } else {
+      const hit = this.drawings.hitTest(x, y);
+      if (hit) {
+        this.chartEl.style.cursor = "grab";
+      } else {
+        if (this.chartEl.style.cursor) this.chartEl.style.cursor = "";
+      }
+    }
+  }
+
+  onChartPointerDown(e) {
+    if (e.button !== 0) return;
+    if (e.target.closest(".legend, .pane-msg, .price-countdown")) return;
+    const r = this.chartEl.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const inPlot =
+      x >= 0 &&
+      x <= this.chart.timeScale().width() &&
+      y >= 0 &&
+      y <= this.chart.panes()[0].getHeight();
+    if (!inPlot) return;
+
+    if (this.drawings.temp) return;
+
+    const isCursor = this.app.tool === "cursor";
+
+    let handle = this.drawings.selected
+      ? this.drawings.hitTestHandle(x, y, this.drawings.selected)
+      : null;
+    let hit = null;
+
+    if (!handle && isCursor) {
+      hit = this.drawings.hitTest(x, y);
+      if (hit) {
+        if (hit !== this.drawings.selected) {
+          this.drawings.selected = hit;
+          this.drawings.update();
+        }
+        handle = this.drawings.hitTestHandle(x, y, hit);
+      }
+    }
+
+    if (!handle && !hit) return;
+
+    e.stopPropagation();
+    e.preventDefault();
+    this.app.setActive(this);
+    this.lastDrawingActionTime = Date.now();
+
+    const startLogical = this.chart.timeScale().coordinateToLogical(x);
+    const startPrice = this.main.coordinateToPrice(y);
+    const targetDrawing = handle ? handle.drawing : hit;
+
+    this.dragState = {
+      type: handle ? "handle" : "body",
+      drawing: targetDrawing,
+      handleIndex: handle ? handle.index : null,
+      handleRole: handle ? handle.role : null,
+      startX: x,
+      startY: y,
+      startLogical,
+      startPrice,
+      origPoints: targetDrawing.points.map((p) => ({
+        ...p,
+        logical: this.logicalOf(p.time),
+      })),
+      moved: false,
+    };
+
+    this.chart.applyOptions({ handleScroll: false, handleScale: false });
+    document.body.style.cursor = handle ? "crosshair" : "grabbing";
+
+    const onMove = (moveEv) => {
+      if (!this.dragState) return;
+      const rect = this.chartEl.getBoundingClientRect();
+      const currX = moveEv.clientX - rect.left;
+      const currY = moveEv.clientY - rect.top;
+      const dx = currX - this.dragState.startX;
+      const dy = currY - this.dragState.startY;
+      if (!this.dragState.moved && Math.hypot(dx, dy) >= 3) {
+        this.dragState.moved = true;
+      }
+      if (this.dragState.moved) {
+        document.body.style.cursor =
+          this.dragState.type === "handle" ? "crosshair" : "grabbing";
+        this.onDragMove(currX, currY);
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove, { capture: true });
+      window.removeEventListener("pointerup", onUp, { capture: true });
+      window.removeEventListener("pointercancel", onUp, { capture: true });
+      this.dragCleanup = null;
+      document.body.style.cursor = "";
+      this.chartEl.style.cursor = "";
+      this.chart.applyOptions({ handleScroll: true, handleScale: true });
+
+      if (this.dragState) {
+        if (this.dragState.moved) {
+          this.app.saveDrawings(this.cfg.symbol, this.drawings.items);
+        }
+        this.lastDrawingActionTime = Date.now();
+        this.dragState = null;
+      }
+    };
+
+    this.dragCleanup = onUp;
+    window.addEventListener("pointermove", onMove, { capture: true });
+    window.addEventListener("pointerup", onUp, { capture: true });
+    window.addEventListener("pointercancel", onUp, { capture: true });
+  }
+
+  onDragMove(x, y) {
+    if (!this.dragState) return;
+    const {
+      type,
+      drawing,
+      handleIndex,
+      handleRole,
+      origPoints,
+      startLogical,
+      startPrice,
+    } = this.dragState;
+
+    const logical = this.chart.timeScale().coordinateToLogical(x);
+    const price = this.main.coordinateToPrice(y);
+    if (logical == null || price == null) return;
+    const time = this.timeOfLogical(logical);
+    if (time == null) return;
+
+    if (type === "handle") {
+      if (drawing.type === "hline") {
+        drawing.points[0].price = price;
+        drawing.points[0].time = time;
+      } else if (drawing.type === "vline") {
+        drawing.points[0].time = time;
+        drawing.points[0].price = price;
+      } else if (drawing.type === "rect" && handleRole) {
+        if (handleRole === "corner-a") {
+          drawing.points[0] = { time, price };
+        } else if (handleRole === "corner-b") {
+          drawing.points[1] = { time, price };
+        } else if (handleRole === "corner-b-x-a-y") {
+          drawing.points[1].time = time;
+          drawing.points[0].price = price;
+        } else if (handleRole === "corner-a-x-b-y") {
+          drawing.points[0].time = time;
+          drawing.points[1].price = price;
+        }
+      } else {
+        if (handleIndex != null && drawing.points[handleIndex]) {
+          drawing.points[handleIndex] = { time, price };
+        }
+      }
+      this.drawings.update();
+    } else if (type === "body") {
+      if (startLogical == null || startPrice == null) return;
+      const deltaLogical = logical - startLogical;
+      const deltaPrice = price - startPrice;
+
+      if (drawing.type === "hline") {
+        drawing.points[0].price = origPoints[0].price + deltaPrice;
+        drawing.points[0].time = time;
+      } else if (drawing.type === "vline") {
+        const origL =
+          origPoints[0].logical ?? this.logicalOf(origPoints[0].time);
+        if (origL != null) {
+          drawing.points[0].time = this.timeOfLogical(origL + deltaLogical);
+          drawing.points[0].price = price;
+        }
+      } else {
+        for (let i = 0; i < drawing.points.length; i++) {
+          const orig = origPoints[i];
+          const origL = orig.logical ?? this.logicalOf(orig.time);
+          if (origL != null) {
+            const newL = origL + deltaLogical;
+            const newTime = this.timeOfLogical(newL);
+            const newPrice = orig.price + deltaPrice;
+            drawing.points[i] = { ...orig, time: newTime, price: newPrice };
+          }
+        }
+      }
       this.drawings.update();
     }
   }
@@ -1388,6 +1621,7 @@ export class ChartPane {
   destroy() {
     this.loadToken = {};
     this.stopLive();
+    if (this.dragCleanup) this.dragCleanup();
     clearInterval(this.countdownTimer);
     clearInterval(this.replayTimer);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);

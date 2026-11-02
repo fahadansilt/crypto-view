@@ -140,6 +140,7 @@ export class DrawingLayer {
 
   draw(ctx, size) {
     if (this.pane.cfg.hideDrawings) return;
+    this.lastSize = size;
     ctx.save();
     ctx.font = "11px -apple-system, Segoe UI, Roboto, sans-serif";
     for (const d of [...this.items, ...(this.temp ? [this.temp] : [])]) {
@@ -348,20 +349,74 @@ export class DrawingLayer {
       ctx.fillStyle = "#fff";
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
-      for (const p of pts) {
+      const handles = this.getHandles(d, size);
+      for (const h of handles) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.arc(h.x, h.y, 4.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
     }
   }
 
+  // Handle control points for adjusting endpoints and shapes.
+  getHandles(d, size = this.lastSize) {
+    if (!d || !d.points || !d.points.length) return [];
+    const pts = d.points.map((p) => ({
+      x: this.x(p.time),
+      y: this.y(p.price),
+      time: p.time,
+      price: p.price,
+    }));
+    if (pts.some((p) => p.x == null || p.y == null)) return [];
+    const [a, b, c] = pts;
+    const w =
+      size?.width ?? this.pane?.chart?.timeScale?.()?.width?.() ?? 600;
+    const h =
+      size?.height ??
+      this.pane?.chart?.panes?.()?.[0]?.getHeight?.() ??
+      400;
+
+    if (d.type === "hline") {
+      const hx = a.x != null && a.x >= 20 && a.x <= w - 20 ? a.x : w / 2;
+      return [{ index: 0, x: hx, y: a.y, role: "point" }];
+    }
+    if (d.type === "vline") {
+      const hy = a.y != null && a.y >= 20 && a.y <= h - 20 ? a.y : h / 2;
+      return [{ index: 0, x: a.x, y: hy, role: "point" }];
+    }
+    if (d.type === "rect") {
+      return [
+        { index: 0, x: a.x, y: a.y, role: "corner-a" },
+        { index: 1, x: b.x, y: b.y, role: "corner-b" },
+        { index: 1, x: b.x, y: a.y, role: "corner-b-x-a-y" },
+        { index: 0, x: a.x, y: b.y, role: "corner-a-x-b-y" },
+      ];
+    }
+    return pts.map((p, idx) => ({ index: idx, x: p.x, y: p.y, role: "point" }));
+  }
+
+  // Hit test for control handles of a drawing
+  hitTestHandle(x, y, d = this.selected) {
+    if (!d || this.pane?.cfg?.hideDrawings) return null;
+    const handles = this.getHandles(d);
+    let best = null;
+    let bestD = 10;
+    for (const h of handles) {
+      const dist = Math.hypot(x - h.x, y - h.y);
+      if (dist < bestD) {
+        bestD = dist;
+        best = h;
+      }
+    }
+    return best ? { ...best, drawing: d } : null;
+  }
+
   // Nearest drawing within a few pixels of (x, y), for selecting.
   hitTest(x, y) {
-    if (this.pane.cfg.hideDrawings) return null;
+    if (this.pane?.cfg?.hideDrawings) return null;
     let best = null,
-      bestD = 7;
+      bestD = 9;
     const segDist = (p, q) => {
       const dx = q.x - p.x,
         dy = q.y - p.y,
@@ -377,24 +432,69 @@ export class DrawingLayer {
         y: this.y(p.price),
       }));
       if (pts.some((p) => p.x == null || p.y == null)) continue;
-      const [a, b] = pts;
+      const [a, b, c] = pts;
       let dist = Infinity;
-      if (d.type === "hline") dist = Math.abs(y - a.y);
-      else if (d.type === "hray")
+      if (d.type === "hline") {
+        dist = Math.abs(y - a.y);
+      } else if (d.type === "hray") {
         dist = x >= a.x - 4 ? Math.abs(y - a.y) : Infinity;
-      else if (d.type === "vline") dist = Math.abs(x - a.x);
-      else if (d.type === "text")
+      } else if (d.type === "vline") {
+        dist = Math.abs(x - a.x);
+      } else if (d.type === "text") {
         dist =
-          x >= a.x - 4 && x <= a.x + 120 && Math.abs(y - a.y) < 12
+          x >= a.x - 4 && x <= a.x + 120 && Math.abs(y - a.y) < 14
             ? 0
             : Infinity;
-      else if (["rect", "fib", "measure", "long", "short"].includes(d.type)) {
+      } else if (d.type === "rect") {
+        const xMin = Math.min(a.x, b.x),
+          xMax = Math.max(a.x, b.x);
+        const yMin = Math.min(a.y, b.y),
+          yMax = Math.max(a.y, b.y);
         const inside =
-          x >= Math.min(a.x, b.x) - 4 &&
-          x <= Math.max(a.x, b.x, a.x + 40) + 4 &&
-          y >= Math.min(a.y, b.y) - 40 &&
-          y <= Math.max(a.y, b.y) + 40;
+          x >= xMin - 4 && x <= xMax + 4 && y >= yMin - 4 && y <= yMax + 4;
         dist = inside ? 3 : Infinity;
+      } else if (d.type === "channel") {
+        const d1 = segDist(a, b);
+        let d2 = Infinity;
+        if (c) {
+          const off =
+            c.y - (a.y + ((b.y - a.y) * (c.x - a.x)) / (b.x - a.x || 1));
+          d2 = segDist({ x: a.x, y: a.y + off }, { x: b.x, y: b.y + off });
+        }
+        dist = Math.min(d1, d2);
+      } else if (d.type === "fib") {
+        const xMin = Math.min(a.x, b.x) - 4,
+          xMax = Math.max(a.x, b.x) + 4;
+        if (x >= xMin && x <= xMax) {
+          for (const lv of FIB_LEVELS) {
+            const p = b.price + (a.price - b.price) * lv;
+            const fy = this.y(p);
+            if (fy != null) dist = Math.min(dist, Math.abs(y - fy));
+          }
+        }
+      } else if (d.type === "measure") {
+        const xMin = Math.min(a.x, b.x) - 4,
+          xMax = Math.max(a.x, b.x) + 4;
+        const yMin = Math.min(a.y, b.y) - 4,
+          yMax = Math.max(a.y, b.y) + 4;
+        dist = x >= xMin && x <= xMax && y >= yMin && y <= yMax ? 3 : Infinity;
+      } else if (d.type === "long" || d.type === "short") {
+        const dir = d.type === "long" ? 1 : -1;
+        const risk = Math.abs(a.price - b.price) || a.price * 0.01;
+        const stop = a.price - dir * risk;
+        const target = a.price + dir * risk * (d.rr || 2);
+        const ys = this.y(stop);
+        const yt = this.y(target);
+        const x1 = Math.min(a.x, b.x);
+        const w = Math.max(Math.abs(b.x - a.x), 40);
+        if (ys != null && yt != null) {
+          const yMin = Math.min(a.y, ys, yt) - 4;
+          const yMax = Math.max(a.y, ys, yt) + 4;
+          dist =
+            x >= x1 - 4 && x <= x1 + w + 4 && y >= yMin && y <= yMax
+              ? 3
+              : Infinity;
+        }
       } else if (b) {
         const far = (p, q, both) => {
           const dx = q.x - p.x,
