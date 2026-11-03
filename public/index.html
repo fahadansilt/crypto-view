@@ -6,25 +6,37 @@
     <title>Quant Terminal</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232962ff'/%3E%3Cpath d='M7 21l6-7 5 4 7-9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='b' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%232563eb'/%3E%3Cstop offset='100%25' stop-color='%230b0e14'/%3E%3C/linearGradient%3E%3ClinearGradient id='l' x1='0%25' y1='100%25' x2='100%25' y2='0%25'%3E%3Cstop offset='0%25' stop-color='%2300f2fe'/%3E%3Cstop offset='100%25' stop-color='%234facfe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23b)'/%3E%3Crect x='1' y='1' width='30' height='30' rx='7' fill='none' stroke='rgba(255,255,255,0.2)' stroke-width='1.5'/%3E%3Cline x1='8' y1='14' x2='8' y2='24' stroke='rgba(56,189,248,0.5)' stroke-width='1.2' stroke-linecap='round'/%3E%3Crect x='6.5' y='17' width='3' height='5' rx='1' fill='rgba(56,189,248,0.6)'/%3E%3Cline x1='15' y1='9' x2='15' y2='23' stroke='white' stroke-width='1.2' stroke-linecap='round'/%3E%3Crect x='13.25' y='12' width='3.5' height='7' rx='1' fill='white'/%3E%3Cpath d='M6 21l6-5 5 3 8.5-10.5' stroke='url(%23l)' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='25.5' cy='8.5' r='3.2' fill='%2338bdf8' fill-opacity='0.35'/%3E%3Ccircle cx='25.5' cy='8.5' r='1.8' fill='white'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@1&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Instrument+Sans:wght@400;500;600;700;800&family=Instrument+Serif:ital@1&display=swap" />
     <link rel="stylesheet" href="/css/app.css" />
   </head>
   <body>
     <header class="topbar">
       <div class="brand" title="Quant Terminal">
-        <svg viewBox="0 0 32 32" width="22" height="22">
-          <rect width="32" height="32" rx="7" fill="var(--accent)" />
-          <path
-            d="M7 21l6-7 5 4 7-9"
-            stroke="#fff"
-            stroke-width="3"
-            fill="none"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
+        <svg class="brand-logo" viewBox="0 0 32 32" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="brandBg" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#2563eb" />
+              <stop offset="100%" stop-color="#0b0e14" />
+            </linearGradient>
+            <linearGradient id="brandLine" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#00f2fe" />
+              <stop offset="100%" stop-color="#4facfe" />
+            </linearGradient>
+          </defs>
+          <rect width="32" height="32" rx="8" fill="url(#brandBg)" />
+          <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="7.25" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" />
+          <line x1="8" y1="14" x2="8" y2="24" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1.2" stroke-linecap="round" />
+          <rect x="6.5" y="17" width="3" height="5" rx="1" fill="rgba(56, 189, 248, 0.55)" />
+          <line x1="15" y1="9" x2="15" y2="23" stroke="rgba(255, 255, 255, 0.7)" stroke-width="1.2" stroke-linecap="round" />
+          <rect x="13.25" y="12" width="3.5" height="7" rx="1" fill="#ffffff" />
+          <path d="M6 21 L12 16 L17 19 L25.5 8.5" stroke="url(#brandLine)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          <circle cx="25.5" cy="8.5" r="3.2" fill="#38bdf8" fill-opacity="0.35" />
+          <circle cx="25.5" cy="8.5" r="1.8" fill="#ffffff" />
         </svg>
+        <span class="brand-text">Crypto<span class="brand-accent">View</span></span>
       </div>
       <button
         id="symbolBtn"

@@ -5,25 +5,143 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
     <title>Sign in · Quant Terminal</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700;800&display=swap" />
     <style>
-      :root { color-scheme: dark; --bg:#101114; --panel:#17191e; --line:#2b2e36; --text:#e7e9ee; --muted:#969ba7; --accent:#5684ff; }
+      :root {
+        color-scheme: dark;
+        --bg: #0b0e14;
+        --panel: #131722;
+        --line: rgba(255, 255, 255, 0.08);
+        --text: #f1f5f9;
+        --muted: #848e9c;
+        --accent: #2962ff;
+        --accent-glow: rgba(41, 98, 255, 0.35);
+      }
       * { box-sizing: border-box; }
-      body { min-height:100vh; margin:0; display:grid; place-items:center; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,sans-serif; }
-      main { width:min(380px,calc(100vw - 32px)); padding:28px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
-      h1 { margin:0 0 4px; font-size:21px; font-weight:600; }
-      p { margin:0 0 22px; color:var(--muted); }
-      label { display:block; margin:14px 0 6px; font-size:13px; }
-      input { width:100%; height:40px; padding:0 11px; border:1px solid var(--line); border-radius:5px; outline:none; background:#101216; color:var(--text); font:inherit; }
-      input:focus { border-color:var(--accent); }
-      button { width:100%; height:40px; margin-top:20px; border:0; border-radius:5px; background:var(--accent); color:white; font:600 14px system-ui,sans-serif; cursor:pointer; }
-      button:disabled { opacity:.65; cursor:wait; }
-      #error { min-height:21px; margin:10px 0 0; color:#ff7777; font-size:13px; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 "Instrument Sans", system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        width: min(390px, calc(100vw - 32px));
+        padding: 34px 28px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        text-align: center;
+      }
+      .brand-badge {
+        display: inline-flex;
+        margin-bottom: 14px;
+        filter: drop-shadow(0 4px 16px var(--accent-glow));
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .brand-accent {
+        background: linear-gradient(135deg, #38bdf8 0%, #3b82f6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      p {
+        margin: 0 0 24px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      label {
+        display: block;
+        margin: 14px 0 6px;
+        font-size: 13px;
+        text-align: left;
+        color: var(--text);
+        font-weight: 500;
+      }
+      input {
+        width: 100%;
+        height: 40px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        outline: none;
+        background: #0e121a;
+        color: var(--text);
+        font: inherit;
+        transition: all 0.15s ease;
+      }
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.2);
+      }
+      button {
+        width: 100%;
+        height: 40px;
+        margin-top: 22px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: white;
+        font: 600 14px "Instrument Sans", system-ui, sans-serif;
+        cursor: pointer;
+        box-shadow: 0 2px 10px var(--accent-glow);
+        transition: all 0.15s ease;
+      }
+      button:hover {
+        filter: brightness(1.08);
+        transform: translateY(-1px);
+      }
+      button:active {
+        transform: translateY(0);
+      }
+      button:disabled {
+        opacity: 0.65;
+        cursor: wait;
+        transform: none;
+      }
+      #error {
+        min-height: 21px;
+        margin: 12px 0 0;
+        color: #ff5252;
+        font-size: 13px;
+      }
     </style>
   </head>
   <body>
     <main>
-      <h1>Quant Terminal</h1>
-      <p>Sign in to open your chart.</p>
+      <div class="brand-badge">
+        <svg viewBox="0 0 32 32" width="44" height="44" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="brandBg" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#2563eb" />
+              <stop offset="100%" stop-color="#0b0e14" />
+            </linearGradient>
+            <linearGradient id="brandLine" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#00f2fe" />
+              <stop offset="100%" stop-color="#4facfe" />
+            </linearGradient>
+          </defs>
+          <rect width="32" height="32" rx="8" fill="url(#brandBg)" />
+          <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="7.25" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" />
+          <line x1="8" y1="14" x2="8" y2="24" stroke="rgba(56, 189, 248, 0.45)" stroke-width="1.2" stroke-linecap="round" />
+          <rect x="6.5" y="17" width="3" height="5" rx="1" fill="rgba(56, 189, 248, 0.55)" />
+          <line x1="15" y1="9" x2="15" y2="23" stroke="rgba(255, 255, 255, 0.7)" stroke-width="1.2" stroke-linecap="round" />
+          <rect x="13.25" y="12" width="3.5" height="7" rx="1" fill="#ffffff" />
+          <path d="M6 21 L12 16 L17 19 L25.5 8.5" stroke="url(#brandLine)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+          <circle cx="25.5" cy="8.5" r="3.2" fill="#38bdf8" fill-opacity="0.35" />
+          <circle cx="25.5" cy="8.5" r="1.8" fill="#ffffff" />
+        </svg>
+      </div>
+      <h1>Crypto<span class="brand-accent">View</span></h1>
+      <p>Quant Terminal · Sign in to open your chart.</p>
       <form id="loginForm">
         <label for="username">Username</label>
         <input id="username" name="username" autocomplete="username" required autofocus />
