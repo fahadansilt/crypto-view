@@ -1248,7 +1248,7 @@ export class ChartPane {
       } else if (drawing.type === "vline") {
         drawing.points[0].time = time;
         drawing.points[0].price = price;
-      } else if (drawing.type === "rect" && handleRole) {
+      } else if ((drawing.type === "rect" || drawing.type === "poc") && handleRole) {
         if (handleRole === "corner-a") {
           drawing.points[0] = { time, price };
         } else if (handleRole === "corner-b") {

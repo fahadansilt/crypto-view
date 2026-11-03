@@ -1,6 +1,8 @@
 // Drawing tools, rendered as a Lightweight Charts series primitive. Points are stored as
 // { time (UTC seconds), price } so drawings stay put when you change timeframe.
 
+import { VolumeProfile } from "./volume-profile.js";
+
 export const TOOLS = [
   { id: "cursor", label: "Cursor", icon: '<path d="M5 3l14 7-6 2-2 6z"/>' },
   {
@@ -56,6 +58,12 @@ export const TOOLS = [
     label: "Fib retracement",
     points: 2,
     icon: '<path d="M3 5h18M3 10h18M3 14h18M3 19h18" stroke-dasharray="2 2"/>',
+  },
+  {
+    id: "poc",
+    label: "Point of Control (POC)",
+    points: 2,
+    icon: '<path d="M4 6h7M4 18h7M4 14h11"/><path d="M3 10h18" stroke-width="2"/><circle cx="17" cy="10" r="1.5" fill="currentColor"/>',
   },
   {
     id: "measure",
@@ -136,6 +144,54 @@ export class DrawingLayer {
     this.items = items || [];
     this.selected = null;
     this.update();
+  }
+
+  getPocData(d) {
+    const [a, b] = d?.points || [];
+    if (!a) return null;
+    const ptB = b || a;
+    const t1 = Math.min(a.time, ptB.time);
+    const t2 = Math.max(a.time, ptB.time);
+    const allBars = this.pane?.shown || this.pane?.bars || [];
+    const inRange = allBars.filter((bar) => bar.time >= t1 && bar.time <= t2);
+    let targetBars = inRange;
+    if (!targetBars.length && allBars.length) {
+      const closest = allBars.reduce((prev, curr) =>
+        Math.abs(curr.time - t1) < Math.abs(prev.time - t1) ? curr : prev,
+      );
+      if (closest) targetBars = [closest];
+    }
+    let prof = null;
+    if (targetBars.length) {
+      const hasVol = targetBars.some((bar) => (bar.volume || 0) > 0);
+      const bList = hasVol
+        ? targetBars
+        : targetBars.map((bar) => ({ ...bar, volume: 1 }));
+      prof = VolumeProfile.profile(bList, d.rows || 24, d.valueArea || 70);
+    }
+    if (prof) {
+      const pocPrice = prof.lo + (prof.poc + 0.5) * prof.step;
+      const vaHighPrice = prof.lo + (prof.vaHigh + 1) * prof.step;
+      const vaLowPrice = prof.lo + prof.vaLow * prof.step;
+      return {
+        prof,
+        pocPrice,
+        vaHighPrice,
+        vaLowPrice,
+        loPrice: prof.lo,
+        hiPrice: prof.lo + prof.total.length * prof.step,
+      };
+    }
+    const pMin = Math.min(a.price, ptB.price);
+    const pMax = Math.max(a.price, ptB.price);
+    return {
+      prof: null,
+      pocPrice: (a.price + ptB.price) / 2,
+      vaHighPrice: pMax,
+      vaLowPrice: pMin,
+      loPrice: pMin,
+      hiPrice: pMax,
+    };
   }
 
   draw(ctx, size) {
@@ -276,6 +332,101 @@ export class DrawingLayer {
         ctx.setLineDash([]);
         break;
       }
+      case "poc": {
+        const x1 = Math.min(a.x, b.x),
+          x2 = Math.max(a.x, b.x);
+        const w = Math.max(x2 - x1, 4);
+        const pocData = this.getPocData(d);
+        if (!pocData) break;
+        const { prof, pocPrice, vaHighPrice, vaLowPrice, loPrice, hiPrice } =
+          pocData;
+
+        const yLo = this.y(loPrice);
+        const yHi = this.y(hiPrice);
+        const topY = Math.min(yLo ?? a.y, yHi ?? b.y, a.y, b.y);
+        const botY = Math.max(yLo ?? a.y, yHi ?? b.y, a.y, b.y);
+        const boxH = Math.max(botY - topY, 4);
+
+        // Background shaded zone for the selected range
+        ctx.fillStyle = "rgba(41, 98, 255, 0.05)";
+        ctx.fillRect(x1, topY, w, boxH);
+        ctx.strokeStyle = d.color || "rgba(120, 123, 134, 0.35)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x1, topY, w, boxH);
+
+        // Volume profile histogram
+        if (prof) {
+          const histW = Math.max(15, w * 0.75);
+          for (let k = 0; k < prof.total.length; k++) {
+            const yTopRow = this.y(prof.lo + (k + 1) * prof.step);
+            const yBotRow = this.y(prof.lo + k * prof.step);
+            if (yTopRow == null || yBotRow == null) continue;
+            const rh = Math.max(1, Math.abs(yBotRow - yTopRow) - 1);
+            const inVa = k >= prof.vaLow && k <= prof.vaHigh;
+            const uw = (prof.up[k] / (prof.max || 1)) * histW;
+            const dw = (prof.down[k] / (prof.max || 1)) * histW;
+            const rowY = Math.min(yTopRow, yBotRow);
+
+            ctx.fillStyle = inVa
+              ? "rgba(8, 153, 129, 0.55)"
+              : "rgba(8, 153, 129, 0.22)";
+            ctx.fillRect(x1, rowY, uw, rh);
+            ctx.fillStyle = inVa
+              ? "rgba(242, 54, 69, 0.55)"
+              : "rgba(242, 54, 69, 0.22)";
+            ctx.fillRect(x1 + uw, rowY, dw, rh);
+          }
+        }
+
+        // Value Area High (VAH) line
+        const yVah = this.y(vaHighPrice);
+        if (yVah != null) {
+          ctx.strokeStyle = "#2962ff";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          line(x1, yVah, x1 + w, yVah);
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#2962ff";
+          ctx.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(`VAH ${price(vaHighPrice)}`, x1 + 4, yVah - 4);
+        }
+
+        // Value Area Low (VAL) line
+        const yVal = this.y(vaLowPrice);
+        if (yVal != null) {
+          ctx.strokeStyle = "#2962ff";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          line(x1, yVal, x1 + w, yVal);
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#2962ff";
+          ctx.font = "10px -apple-system, Segoe UI, Roboto, sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(`VAL ${price(vaLowPrice)}`, x1 + 4, yVal + 11);
+        }
+
+        // Point of Control (POC) line
+        const yPoc = this.y(pocPrice);
+        if (yPoc != null) {
+          const pocColor = d.pocColor || "#ff9800";
+          ctx.strokeStyle = pocColor;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([]);
+          line(x1, yPoc, x1 + w, yPoc);
+
+          // Extend dashed POC ray to right screen edge
+          if (d.extendRight !== false && size?.width > x1 + w) {
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([4, 3]);
+            line(x1 + w, yPoc, size.width, yPoc);
+            ctx.setLineDash([]);
+          }
+
+          label(`POC ${price(pocPrice)}`, x1 + w - 4, yPoc, "right", pocColor);
+        }
+        break;
+      }
       case "measure": {
         const up = b.price >= a.price;
         ctx.fillStyle = (up ? COLORS.up : COLORS.down) + "0.15)";
@@ -389,7 +540,7 @@ export class DrawingLayer {
       const hy = a.y != null && a.y >= 20 && a.y <= h - 20 ? a.y : h / 2;
       return [{ index: 0, x: a.x, y: hy, role: "point" }];
     }
-    if (d.type === "rect") {
+    if (d.type === "rect" || d.type === "poc") {
       return [
         { index: 0, x: a.x, y: a.y, role: "corner-a" },
         { index: 1, x: b.x, y: b.y, role: "corner-b" },
@@ -458,6 +609,26 @@ export class DrawingLayer {
         const inside =
           x >= xMin - 6 && x <= xMax + 6 && y >= yMin - 6 && y <= yMax + 6;
         dist = inside ? 3 : Infinity;
+      } else if (d.type === "poc") {
+        const xMin = Math.min(a.x, b.x) - 6,
+          xMax = Math.max(a.x, b.x) + 6;
+        const pocData = this.getPocData(d);
+        const yLo = this.y(pocData?.loPrice ?? a.price);
+        const yHi = this.y(pocData?.hiPrice ?? b.price);
+        const topY = Math.min(yLo ?? a.y, yHi ?? b.y, a.y, b.y);
+        const botY = Math.max(yLo ?? a.y, yHi ?? b.y, a.y, b.y);
+        const inside =
+          x >= xMin && x <= xMax && y >= topY - 6 && y <= botY + 6;
+        let nearPoc = false;
+        const yPoc = this.y(pocData?.pocPrice ?? (a.price + b.price) / 2);
+        if (yPoc != null && Math.abs(y - yPoc) <= 8 && x >= xMin) {
+          const maxReach =
+            d.extendRight === false
+              ? xMax
+              : this.lastSize?.width || 1e5;
+          if (x <= maxReach + 6) nearPoc = true;
+        }
+        dist = inside || nearPoc ? 3 : Infinity;
       } else if (d.type === "channel") {
         const d1 = segDist(a, b);
         let d2 = Infinity;

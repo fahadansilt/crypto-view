@@ -2425,7 +2425,7 @@ export const INDICATORS = [
   },
   {
     id: "vpvr",
-    name: "Volume Profile, visible range (VPVR)",
+    name: "Volume Profile / POC, visible range (VPVR)",
     group: "Volume",
     overlay: true,
     inputs: [
@@ -2452,7 +2452,7 @@ export const INDICATORS = [
   },
   {
     id: "svp",
-    name: "Session Volume Profile (SVP)",
+    name: "Session Volume Profile / POC (SVP)",
     group: "Volume",
     overlay: true,
     inputs: [

@@ -774,6 +774,11 @@ class App {
       case "ray": return line("right", "Ray");
       case "extended": return line("both", "Extended line");
       case "channel": return line("none", "Channel's first line");
+      case "poc": {
+        const pocData = this.active?.drawings?.getPocData?.(d);
+        const pocPrice = pocData?.pocPrice ?? (a.price + (b?.price ?? a.price)) / 2;
+        return { kind: "line", label: "Point of Control (POC)", line: { t1: a.time, p1: pocPrice, t2: (b?.time ?? a.time) + 1, p2: pocPrice, extend: "right" } };
+      }
       default: return null;
     }
   }

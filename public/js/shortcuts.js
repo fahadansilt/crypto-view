@@ -77,6 +77,7 @@ export class ChartShortcuts {
       add("Drawing tools", "Vertical line", ["Alt+v"], tool("vline")),
       add("Drawing tools", "Ray", ["Alt+j"], tool("ray")),
       add("Drawing tools", "Fib retracement", ["Alt+f"], tool("fib")),
+      add("Drawing tools", "Point of Control (POC)", ["Alt+Shift+p"], tool("poc")),
       add("Drawing tools", "Text note", ["Alt+x"], tool("text")),
       add("Drawing tools", "Rectangle", ["Alt+Shift+r"], tool("rect")),
       add("Drawing tools", "Long position", ["Alt+Shift+l"], tool("long")),
@@ -142,7 +143,7 @@ export class ChartShortcuts {
     document.addEventListener("keydown", (event) => this.handle(event));
     document.getElementById("shortcutsBtn").onclick = () => this.showHelp();
     for (const action of this.actions) {
-      const names = { "trend": "Trend line", "measure": "Price range / measure", "hline": "Horizontal line", "vline": "Vertical line", "ray": "Ray", "fib": "Fib retracement", "text": "Text note", "rect": "Rectangle", "long": "Long position", "short": "Short position" };
+      const names = { "trend": "Trend line", "measure": "Price range / measure", "hline": "Horizontal line", "vline": "Vertical line", "ray": "Ray", "fib": "Fib retracement", "poc": "Point of Control (POC)", "text": "Text note", "rect": "Rectangle", "long": "Long position", "short": "Short position" };
       for (const [id, label] of Object.entries(names)) {
         if (label === action.label) document.querySelector(`[data-tool="${id}"]`)?.setAttribute("title", `${label} (${this.keyLabel(action.keys[0])})`);
       }

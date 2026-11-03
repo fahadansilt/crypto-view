@@ -237,3 +237,90 @@ test('DrawingLayer: handles and hit test for vline and measure', () => {
   const hitM = layer.hitTest(pane.timeToX(250), pane.series.priceToCoordinate(120));
   assert.equal(hitM, measure);
 });
+
+test('DrawingLayer: handles and hit test for POC tool', () => {
+  const pane = mockPane();
+  const layer = new DrawingLayer(pane);
+  layer.attached({ series: pane.series, requestUpdate: () => {} });
+
+  const poc = {
+    id: '9',
+    type: 'poc',
+    points: [
+      { time: 100, price: 100 },
+      { time: 300, price: 200 },
+    ],
+  };
+  layer.setItems([poc]);
+  layer.selected = poc;
+
+  const handles = layer.getHandles(poc);
+  assert.equal(handles.length, 4);
+  assert.deepEqual(
+    handles.map((h) => h.role),
+    ['corner-a', 'corner-b', 'corner-b-x-a-y', 'corner-a-x-b-y'],
+  );
+
+  // Handle hit test
+  const hitHandle = layer.hitTestHandle(handles[0].x, handles[0].y);
+  assert.ok(hitHandle);
+  assert.equal(hitHandle.index, 0);
+
+  // Hit test inside the POC box
+  const hitBox = layer.hitTest(pane.timeToX(200), pane.series.priceToCoordinate(150));
+  assert.equal(hitBox, poc);
+
+  // Hit test on the extended POC line to the right of the box
+  const pocData = layer.getPocData(poc);
+  assert.ok(pocData);
+  assert.equal(pocData.pocPrice, 150);
+  const hitLine = layer.hitTest(pane.timeToX(400), pane.series.priceToCoordinate(150));
+  assert.equal(hitLine, poc);
+});
+
+test('DrawingLayer: POC tool calculates profile and POC from pane bars', () => {
+  const pane = mockPane();
+  pane.shown = [
+    { time: 100, open: 100, high: 105, low: 95, close: 102, volume: 10 },
+    { time: 200, open: 102, high: 150, low: 100, close: 148, volume: 100 },
+    { time: 300, open: 148, high: 155, low: 140, close: 142, volume: 15 },
+  ];
+  const layer = new DrawingLayer(pane);
+  layer.attached({ series: pane.series, requestUpdate: () => {} });
+
+  const poc = {
+    id: '10',
+    type: 'poc',
+    points: [
+      { time: 100, price: 95 },
+      { time: 300, price: 155 },
+    ],
+  };
+
+  const pocData = layer.getPocData(poc);
+  assert.ok(pocData);
+  assert.ok(pocData.prof);
+  assert.ok(pocData.pocPrice >= 95 && pocData.pocPrice <= 155);
+  assert.ok(pocData.vaHighPrice >= pocData.pocPrice);
+  assert.ok(pocData.vaLowPrice <= pocData.pocPrice);
+
+  // Test drawing execution
+  const mockCtx = {
+    save: () => {},
+    restore: () => {},
+    beginPath: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    stroke: () => {},
+    fillRect: () => {},
+    strokeRect: () => {},
+    fillText: () => {},
+    setLineDash: () => {},
+    measureText: () => ({ width: 40 }),
+    arc: () => {},
+    fill: () => {},
+  };
+  assert.doesNotThrow(() => {
+    layer.drawOne(mockCtx, { width: 600, height: 400 }, poc, true);
+  });
+});
