@@ -85,6 +85,27 @@ class App {
     await this.loadCustomIndicators();
     this.buildToolbar();
     this.buildDrawbar();
+
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const initialSymbol = urlParams.get("symbol") || urlParams.get("s");
+      const initialTf = urlParams.get("tf") || urlParams.get("interval");
+      if (initialSymbol && typeof initialSymbol === "string" && initialSymbol.trim()) {
+        let sym = initialSymbol.trim();
+        if (/^[A-Z0-9]+$/i.test(sym) && !sym.includes(":")) {
+          sym = `BINANCE_FUTURES:${sym.toUpperCase()}`;
+        } else if (sym.endsWith(".P")) {
+          const base = sym.replace(/^(?:BINANCE:|BINANCE_FUTURES:)?/i, "").replace(/\.P$/i, "");
+          sym = `BINANCE_FUTURES:${base.toUpperCase()}`;
+        }
+        if (this.state.panes && this.state.panes[0]) {
+          this.state.panes[0].symbol = sym;
+          if (initialTf) this.state.panes[0].tf = initialTf;
+        }
+        this.rememberSymbol(sym);
+      }
+    } catch (_) {}
+
     this.setLayout(this.state.layout, false);
     this.panels = initPanels(this);
     this.history = new ChartHistory(
@@ -104,6 +125,15 @@ class App {
     this.listenAlerts();
     this.checkHealth();
     setInterval(() => this.checkHealth(), 60000);
+    window.addEventListener("popstate", () => {
+      try {
+        const q = new URLSearchParams(window.location.search);
+        const sym = q.get("symbol") || q.get("s");
+        if (sym && this.active && this.active.cfg.symbol !== sym) {
+          this.setSymbol(sym, this.active);
+        }
+      } catch (_) {}
+    });
     try {
       const auth = await api.get("/api/auth/status");
       if (auth.enabled) {
@@ -370,6 +400,11 @@ class App {
     this.active.load();
     this.syncToolbar();
     this.persist();
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("tf", tf);
+      window.history.replaceState(null, "", u.toString());
+    } catch (_) {}
   }
 
   recentSymbols() {
@@ -425,6 +460,11 @@ class App {
     }
     this.syncToolbar();
     this.persist();
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("symbol", sym);
+      window.history.replaceState(null, "", u.toString());
+    } catch (_) {}
   }
 
   buildDrawbar() {
