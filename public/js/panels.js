@@ -203,6 +203,7 @@ const defaultRule = () => ({
 // ==========================================================================================
 export function initPanels(app) {
   const side = $("#sideBody"),
+    sideEl = $("#sideBar") || $(".side"),
     bottom = $("#bottomBody"),
     bottomEl = $("#bottom");
   let sideTab = "watchlist",
@@ -211,9 +212,18 @@ export function initPanels(app) {
 
   // ---------- tabs ----------
   $("#sideTabs").onclick = (e) => {
-    const t = e.target.dataset.tab;
+    const t = e.target.closest("[data-tab]")?.dataset.tab;
     if (t) showSide(t);
   };
+  const sideToggleBtn = $("#sideToggle");
+  if (sideToggleBtn) {
+    sideToggleBtn.onclick = () => {
+      sideEl?.classList.toggle("collapsed");
+      sideToggleBtn.title = sideEl?.classList.contains("collapsed")
+        ? "Expand sidebar"
+        : "Collapse sidebar";
+    };
+  }
   $("#bottomTabs").onclick = (e) => {
     const t = e.target.closest("[data-tab]")?.dataset.tab;
     if (t) showBottom(t, true);
@@ -225,8 +235,9 @@ export function initPanels(app) {
 
   function showSide(t) {
     sideTab = t;
+    sideEl?.classList.remove("collapsed");
     document
-      .querySelectorAll("#sideTabs button")
+      .querySelectorAll("#sideTabs button[data-tab]")
       .forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
     renderSide();
   }
