@@ -128,27 +128,48 @@ svg {
   height: 44px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 8px;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+  overflow: hidden;
+  user-select: none;
+  position: relative;
+}
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
 }
-.topbar::-webkit-scrollbar {
+.topbar-left::-webkit-scrollbar {
+  display: none;
   height: 0;
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 10px 0 2px;
+  padding: 0 8px 0 0;
   cursor: pointer;
   user-select: none;
+  flex: none;
 }
 .brand-logo {
-  width: 25px;
-  height: 25px;
+  width: 26px;
+  height: 26px;
   flex: none;
   border-radius: 7px;
   filter: drop-shadow(0 2px 8px var(--accent-glow));
@@ -166,6 +187,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 1px;
+  white-space: nowrap;
 }
 .brand-accent {
   background: linear-gradient(135deg, #38bdf8 0%, #3b82f6 50%, #6366f1 100%);
@@ -175,27 +197,33 @@ svg {
 }
 .sep {
   width: 1px;
-  height: 22px;
+  height: 18px;
   background: var(--border);
-  margin: 0 6px;
+  margin: 0 4px;
   flex: none;
 }
 .tb {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 9px;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 7px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
   white-space: nowrap;
   flex: none;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--text);
   transition: all 0.15s ease;
+}
+.tb svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 a.tb {
   color: inherit;
@@ -211,17 +239,18 @@ a.tb {
   background: var(--accent-soft);
 }
 .tb.icon {
-  padding: 0 7px;
+  padding: 0 6px;
+  min-width: 30px;
 }
 select.tb {
   appearance: none;
-  padding-right: 22px;
+  padding: 0 20px 0 7px;
   background-image:
     linear-gradient(45deg, transparent 50%, var(--muted) 50%),
     linear-gradient(135deg, var(--muted) 50%, transparent 50%);
   background-position:
-    calc(100% - 12px) 14px,
-    calc(100% - 8px) 14px;
+    calc(100% - 10px) 13px,
+    calc(100% - 6px) 13px;
   background-size: 4px 4px;
   background-repeat: no-repeat;
 }
@@ -231,26 +260,33 @@ select.tb option {
 .tb.check {
   gap: 5px;
   color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.tb.check input {
+  cursor: pointer;
+  margin: 0;
 }
 .symbol-btn {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13.5px;
   letter-spacing: -0.01em;
+  padding: 0 7px;
 }
 .tf-group {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   flex: none;
 }
 .tf-group button {
-  height: 30px;
-  min-width: 32px;
+  height: 28px;
+  min-width: 27px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   cursor: pointer;
-  padding: 0 6px;
-  font-size: 12.5px;
+  padding: 0 4px;
+  font-size: 12px;
   font-weight: 500;
   transition: all 0.15s ease;
 }
@@ -264,22 +300,31 @@ select.tb option {
   font-weight: 600;
 }
 .tf-custom {
-  width: 46px;
-  height: 28px;
-  margin-left: 4px;
+  width: 38px;
+  height: 26px;
+  margin-left: 2px;
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--input);
-  padding: 0 6px;
+  padding: 0 4px;
   text-align: center;
   flex: none;
+  font-size: 12px;
+}
+.logout-btn {
+  color: var(--muted);
+  gap: 5px;
+}
+.logout-btn:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
 }
 .status {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--muted);
-  margin: 0 6px 0 8px;
+  margin: 0 5px 0 3px;
   flex: none;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05);
   transition: all 0.3s ease;
@@ -298,6 +343,55 @@ select.tb option {
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(8, 153, 129, 0.45); }
   50% { box-shadow: 0 0 0 4px rgba(8, 153, 129, 0); }
+}
+
+/* Responsive top section rules */
+@media (max-width: 1450px) {
+  #compareBtn span,
+  #replayBtn span,
+  #alertBtn span,
+  #shortcutsBtn span {
+    display: none;
+  }
+  #compareBtn,
+  #replayBtn,
+  #alertBtn,
+  #shortcutsBtn {
+    padding: 0 6px;
+  }
+}
+
+@media (max-width: 1280px) {
+  #indicatorsBtn span,
+  #logoutBtn span {
+    display: none;
+  }
+  #indicatorsBtn,
+  #logoutBtn {
+    padding: 0 6px;
+  }
+  .tb.check span {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .brand-text {
+    display: none;
+  }
+  .tf-group button[data-tf="1W"],
+  .tf-group button[data-tf="4h"] {
+    display: none;
+  }
+}
+
+@media (max-width: 950px) {
+  .tf-custom {
+    display: none;
+  }
+  .tf-group button[data-tf="1m"] {
+    display: none;
+  }
 }
 
 /* main layout */
