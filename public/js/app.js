@@ -88,8 +88,32 @@ class App {
 
     try {
       const urlParams = new URLSearchParams(window.location.search);
-      const initialSymbol = urlParams.get("symbol") || urlParams.get("s");
+      let initialSymbol = urlParams.get("symbol") || urlParams.get("s");
       const initialTf = urlParams.get("tf") || urlParams.get("interval");
+      const tradeParam = urlParams.get("trade");
+      let tradeOverlay = null;
+
+      if (tradeParam) {
+        try {
+          let raw = decodeURIComponent(tradeParam);
+          try {
+            raw = atob(raw);
+            raw = decodeURIComponent(escape(raw));
+          } catch (_) {}
+          tradeOverlay = JSON.parse(raw);
+        } catch (_) {
+          try {
+            tradeOverlay = JSON.parse(tradeParam);
+          } catch (_) {}
+        }
+      }
+      this.tradeOverlay = tradeOverlay;
+
+      if (!initialSymbol && tradeOverlay && tradeOverlay.pair) {
+        const clean = String(tradeOverlay.pair).replace(/[:/_\s]/g, "").replace(/\.P$/i, "").toUpperCase();
+        initialSymbol = `BINANCE_FUTURES:${clean}`;
+      }
+
       if (initialSymbol && typeof initialSymbol === "string" && initialSymbol.trim()) {
         let sym = initialSymbol.trim();
         if (/^[A-Z0-9]+$/i.test(sym) && !sym.includes(":")) {
@@ -280,10 +304,27 @@ class App {
     this.panels?.onActiveChange?.();
   }
 
+  matchTradeSymbol(tradePair, chartSymbol) {
+    if (!tradePair || !chartSymbol) return false;
+    const clean = (s) =>
+      String(s)
+        .trim()
+        .replace(/^[A-Z0-9_]+:/i, "")
+        .replace(/:[A-Z0-9]+$/i, "")
+        .replace(/[:/_\s]/g, "")
+        .replace(/\.P$/i, "")
+        .toUpperCase();
+    return clean(tradePair) === clean(chartSymbol);
+  }
+
   onPaneLoaded(pane) {
     if (pane === this.active) {
       this.syncToolbar();
       this.panels?.onActiveChange?.();
+    }
+    if (this.tradeOverlay && this.matchTradeSymbol(this.tradeOverlay.pair, pane.cfg.symbol)) {
+      pane.applyTradeOverlay(this.tradeOverlay, { autoFrame: !pane._tradeFramedOnce });
+      pane._tradeFramedOnce = true;
     }
   }
 
@@ -451,6 +492,15 @@ class App {
   }
 
   setSymbol(sym, pane = this.active) {
+    if (this.tradeOverlay && !this.matchTradeSymbol(this.tradeOverlay.pair, sym)) {
+      this.tradeOverlay = null;
+      pane?.clearTradeOverlay(true);
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.delete("trade");
+        window.history.replaceState(null, "", u.toString());
+      } catch (_) {}
+    }
     this.rememberSymbol(sym);
     const targets = this.settings.syncSymbol ? this.panes : [pane];
     for (const p of targets) {

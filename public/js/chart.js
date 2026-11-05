@@ -163,6 +163,8 @@ export class ChartPane {
     this.indResults = {};
     this.compareSeries = new Map();
     this.extraMarkers = [];
+    this.tradePriceLines = [];
+    this.tradeOverlay = null;
     this.replay = null;
     this.wsWatchTimer = null;
     this.wsConnectTimer = null;
@@ -318,6 +320,7 @@ export class ChartPane {
     if (this.main) {
       this.main.detachPrimitive(this.drawings);
       this.chart.removeSeries(this.main);
+      this.tradePriceLines = [];
     }
     if (this.volume) {
       this.chart.removeSeries(this.volume);
@@ -454,6 +457,28 @@ export class ChartPane {
 
   formatPrice(v) {
     return fmtPrice(v);
+  }
+
+  snapToBar(utcSec) {
+    if (!utcSec) return null;
+    const bars = this.shown?.length ? this.shown : this.bars;
+    if (!bars || !bars.length) return utcSec;
+    if (utcSec <= bars[0].time) return bars[0].time;
+    if (utcSec >= bars[bars.length - 1].time) return bars[bars.length - 1].time;
+    let lo = 0,
+      hi = bars.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const bTime = bars[mid].time;
+      const nextTime = mid + 1 < bars.length ? bars[mid + 1].time : Infinity;
+      if (utcSec >= bTime && utcSec < nextTime) {
+        return bTime;
+      }
+      if (bTime < utcSec) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, Math.min(bars.length - 1, lo));
+    return bars[idx].time;
   }
 
   // ---------- data ----------
@@ -615,7 +640,10 @@ export class ChartPane {
     this.renderCompare();
     this.renderIndicators();
     this.drawings.update();
-    if (resetView && this.shown.length)
+    if (this.tradeOverlay && !this.tradePriceLines.length) {
+      this.applyTradeOverlay(this.tradeOverlay, { autoFrame: resetView });
+    }
+    if (resetView && this.shown.length && !this.tradeOverlay)
       this.chart.timeScale().setVisibleLogicalRange({
         from: Math.max(0, this.shown.length - 160),
         to: this.shown.length + 8,
@@ -781,6 +809,244 @@ export class ChartPane {
       .filter((m) => !this.replay || m.time <= this.times.at(-1));
     all.sort((x, y) => x.time - y.time);
     this.markers.setMarkers(all);
+  }
+
+  applyTradeOverlay(trade, { autoFrame = true } = {}) {
+    if (!trade) return;
+    this.clearTradeOverlay(false);
+    this.tradeOverlay = trade;
+
+    const isShort = trade.side === "short" || trade.side === "Short" || trade.is_short;
+    const markers = [];
+
+    // 1. Initial Entry marker
+    const entryTime = this.snapToBar(trade.openTime || (trade.entries && trade.entries[0]?.time));
+    const entryPrice = trade.entry != null ? trade.entry : (trade.entries && trade.entries[0]?.price);
+    if (entryTime && entryPrice != null) {
+      markers.push({
+        time: entryTime,
+        position: isShort ? "aboveBar" : "belowBar",
+        color: isShort ? "#f97316" : "#3b82f6",
+        shape: isShort ? "arrowDown" : "arrowUp",
+        text: `ENTRY @ ${this.formatPrice(entryPrice)}`,
+      });
+    }
+
+    // 2. Position Increases / DCA entries (skip index 0 if it's the initial entry)
+    const entries = Array.isArray(trade.entries) ? trade.entries : [];
+    const dcaEntries = entries.length > 1 ? entries.slice(1) : [];
+    dcaEntries.forEach((e, idx) => {
+      const t = this.snapToBar(e.time);
+      if (t && e.price != null) {
+        markers.push({
+          time: t,
+          position: isShort ? "aboveBar" : "belowBar",
+          color: "#0ea5e9",
+          shape: "square",
+          text: `+DCA #${e.index || idx + 2} @ ${this.formatPrice(e.price)}`,
+        });
+      }
+    });
+
+    // 3. Grinding Exits (Partial profit takings)
+    const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+    grindExits.forEach((g, idx) => {
+      const t = this.snapToBar(g.time);
+      if (t && g.price != null) {
+        markers.push({
+          time: t,
+          position: isShort ? "belowBar" : "aboveBar",
+          color: "#f59e0b",
+          shape: "circle",
+          text: `GRIND EXIT #${g.index || idx + 1} @ ${this.formatPrice(g.price)}`,
+        });
+      }
+    });
+
+    // 4. Final Exit (if closed)
+    const exitTime = this.snapToBar(trade.closeTime);
+    const exitPrice = trade.exit != null ? trade.exit : (trade.exits && trade.exits[trade.exits.length - 1]?.price);
+    if (!trade.isOpen && exitTime && exitPrice != null) {
+      const pnlPct = trade.profitRatio != null
+        ? `${trade.profitRatio >= 0 ? "+" : ""}${(trade.profitRatio * 100).toFixed(2)}%`
+        : trade.profit != null
+          ? `${trade.profit >= 0 ? "+" : ""}${trade.profit.toFixed(2)}`
+          : "";
+      const isWin = (trade.profitRatio != null ? trade.profitRatio >= 0 : (trade.profit != null ? trade.profit >= 0 : true));
+      markers.push({
+        time: exitTime,
+        position: isShort ? "belowBar" : "aboveBar",
+        color: isWin ? "#10b981" : "#ef4444",
+        shape: "circle",
+        text: `EXIT @ ${this.formatPrice(exitPrice)}${pnlPct ? ` (${pnlPct})` : ""}`,
+      });
+    }
+
+    this.extraMarkers = markers;
+    this.renderIndicators();
+
+    // 5. Price lines on this.main
+    if (this.main) {
+      if (entryPrice != null) {
+        this.tradePriceLines.push(
+          this.main.createPriceLine({
+            price: entryPrice,
+            color: "#3b82f6",
+            lineWidth: 2,
+            lineStyle: LW?.LineStyle?.Dashed ?? 2,
+            axisLabelVisible: true,
+            title: `ENTRY (${this.formatPrice(entryPrice)})`,
+          })
+        );
+      }
+      if (trade.stopLoss != null && trade.stopLoss > 0) {
+        this.tradePriceLines.push(
+          this.main.createPriceLine({
+            price: trade.stopLoss,
+            color: "#ef4444",
+            lineWidth: 1,
+            lineStyle: LW?.LineStyle?.Dashed ?? 2,
+            axisLabelVisible: true,
+            title: `SL (${this.formatPrice(trade.stopLoss)})`,
+          })
+        );
+      }
+      if (trade.liquidation != null && trade.liquidation > 0) {
+        this.tradePriceLines.push(
+          this.main.createPriceLine({
+            price: trade.liquidation,
+            color: "#f59e0b",
+            lineWidth: 1,
+            lineStyle: LW?.LineStyle?.LargeDashed ?? 3,
+            axisLabelVisible: true,
+            title: `LIQ (${this.formatPrice(trade.liquidation)})`,
+          })
+        );
+      }
+      if (!trade.isOpen && exitPrice != null) {
+        const isWin = (trade.profitRatio != null ? trade.profitRatio >= 0 : (trade.profit != null ? trade.profit >= 0 : true));
+        this.tradePriceLines.push(
+          this.main.createPriceLine({
+            price: exitPrice,
+            color: isWin ? "#10b981" : "#ef4444",
+            lineWidth: 2,
+            lineStyle: LW?.LineStyle?.Dashed ?? 2,
+            axisLabelVisible: true,
+            title: `EXIT (${this.formatPrice(exitPrice)})`,
+          })
+        );
+      }
+    }
+
+    // 6. Auto-frame trade window if autoFrame is true
+    if (autoFrame && this.shown?.length) {
+      const tStart = trade.openTime || (trade.entries && trade.entries[0]?.time);
+      const tEnd = (!trade.isOpen && trade.closeTime) ? trade.closeTime : (this.shown.at(-1)?.time);
+      if (tStart) {
+        const lStart = this.logicalOf(tStart);
+        const lEnd = tEnd ? this.logicalOf(tEnd) : this.shown.length - 1;
+        if (lStart != null && lEnd != null) {
+          const lo = Math.min(lStart, lEnd);
+          const hi = Math.max(lStart, lEnd);
+          const span = Math.max(8, hi - lo);
+          const pad = Math.max(10, Math.round(span * 0.25));
+          const from = Math.max(0, Math.floor(lo - pad));
+          const to = Math.min(this.shown.length + 15, Math.ceil(hi + pad));
+          if (to > from) {
+            this.chart.timeScale().setVisibleLogicalRange({ from, to });
+          }
+        }
+      }
+    }
+
+    // 7. Render Floating Trade HUD
+    this.renderTradeOverlayHud();
+  }
+
+  clearTradeOverlay(render = true) {
+    if (this.main && this.tradePriceLines?.length) {
+      for (const line of this.tradePriceLines) {
+        try {
+          this.main.removePriceLine(line);
+        } catch (_) {}
+      }
+    }
+    this.tradePriceLines = [];
+    this.extraMarkers = [];
+    this.tradeOverlay = null;
+    this.el.querySelector(".trade-overlay-hud")?.remove();
+    if (render) {
+      this.renderIndicators();
+    }
+  }
+
+  renderTradeOverlayHud() {
+    this.el.querySelector(".trade-overlay-hud")?.remove();
+    if (!this.tradeOverlay) return;
+    const trade = this.tradeOverlay;
+    const isShort = trade.side === "short" || trade.side === "Short" || trade.is_short;
+    const hud = document.createElement("div");
+    hud.className = "trade-overlay-hud";
+
+    const sideBadge = `<span class="trade-hud-badge ${isShort ? "short" : "long"}">${isShort ? "SHORT" : "LONG"}${trade.leverage && trade.leverage > 1 ? ` ${trade.leverage}x` : ""}</span>`;
+    const pairBadge = trade.pair ? `<span class="trade-hud-pair">${esc(trade.pair)}</span>` : "";
+    const idBadge = trade.id != null ? `<span class="trade-hud-id">#${esc(String(trade.id))}</span>` : "";
+    const entryStat = trade.entry != null ? `<span class="trade-hud-stat">Entry: <b>${this.formatPrice(trade.entry)}</b></span>` : "";
+    
+    const dcaCount = (trade.entries?.length || 0) > 1 ? trade.entries.length - 1 : 0;
+    const dcaStat = dcaCount > 0 ? `<span class="trade-hud-stat dca">${dcaCount} DCA${dcaCount > 1 ? "s" : ""}</span>` : "";
+
+    const grindCount = trade.grindExits?.length || 0;
+    const grindStat = grindCount > 0 ? `<span class="trade-hud-stat grind">${grindCount} Grind${grindCount > 1 ? "s" : ""}</span>` : "";
+
+    let pnlStat = "";
+    if (!trade.isOpen) {
+      const isWin = (trade.profitRatio != null ? trade.profitRatio >= 0 : (trade.profit != null ? trade.profit >= 0 : true));
+      const pnlPct = trade.profitRatio != null ? `${trade.profitRatio >= 0 ? "+" : ""}${(trade.profitRatio * 100).toFixed(2)}%` : "";
+      const pnlAbs = trade.profit != null ? ` (${trade.profit >= 0 ? "+" : ""}$${trade.profit.toFixed(2)})` : "";
+      const reason = trade.exitReason ? ` [${esc(trade.exitReason)}]` : "";
+      pnlStat = `<span class="trade-hud-pnl ${isWin ? "win" : "loss"}">${pnlPct}${pnlAbs}${reason}</span>`;
+    } else {
+      pnlStat = `<span class="trade-hud-pnl active"><span class="trade-hud-pulse"></span>ACTIVE</span>`;
+    }
+
+    hud.innerHTML = `
+      <div class="trade-hud-left">
+        ${sideBadge}
+        ${pairBadge}
+        ${idBadge}
+      </div>
+      <div class="trade-hud-mid">
+        ${entryStat}
+        ${dcaStat}
+        ${grindStat}
+        ${pnlStat}
+      </div>
+      <div class="trade-hud-right">
+        <button class="trade-hud-fit-btn" title="Fit chart view to trade">Fit</button>
+        <button class="trade-hud-close-btn" title="Clear trade overlay">✕ Clear</button>
+      </div>
+    `;
+
+    hud.querySelector(".trade-hud-fit-btn").onclick = (e) => {
+      e.stopPropagation();
+      this.applyTradeOverlay(this.tradeOverlay, { autoFrame: true });
+    };
+
+    hud.querySelector(".trade-hud-close-btn").onclick = (e) => {
+      e.stopPropagation();
+      this.clearTradeOverlay(true);
+      if (this.app) {
+        this.app.tradeOverlay = null;
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("trade");
+          window.history.replaceState(null, "", u.toString());
+        } catch (_) {}
+      }
+    };
+
+    this.el.appendChild(hud);
   }
 
   // "14 on RSI 14 (1D)": the numeric inputs, what it's built on, and its timeframe.
@@ -1654,6 +1920,7 @@ export class ChartPane {
   }
 
   destroy() {
+    this.clearTradeOverlay(false);
     this.loadToken = {};
     this.stopLive();
     if (this.dragCleanup) this.dragCleanup();
