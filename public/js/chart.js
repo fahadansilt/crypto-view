@@ -822,13 +822,17 @@ export class ChartPane {
     // 1. Initial Entry marker
     const entryTime = this.snapToBar(trade.openTime || (trade.entries && trade.entries[0]?.time));
     const entryPrice = trade.entry != null ? trade.entry : (trade.entries && trade.entries[0]?.price);
+    const initialStake = (trade.entries && trade.entries[0]?.stake != null)
+      ? Number(trade.entries[0].stake)
+      : (trade.entries && trade.entries[0]?.amount != null && entryPrice != null ? trade.entries[0].amount * entryPrice : null);
+    const entryStakeStr = initialStake != null ? ` (+$${initialStake >= 10 ? Math.round(initialStake) : initialStake.toFixed(1)})` : "";
     if (entryTime && entryPrice != null) {
       markers.push({
         time: entryTime,
         position: isShort ? "aboveBar" : "belowBar",
         color: isShort ? "#f97316" : "#3b82f6",
         shape: isShort ? "arrowDown" : "arrowUp",
-        text: `ENTRY @ ${this.formatPrice(entryPrice)}`,
+        text: `ENTRY @ ${this.formatPrice(entryPrice)}${entryStakeStr}`,
       });
     }
 
@@ -838,12 +842,16 @@ export class ChartPane {
     dcaEntries.forEach((e, idx) => {
       const t = this.snapToBar(e.time);
       if (t && e.price != null) {
+        const stk = e.stake != null
+          ? Number(e.stake)
+          : (e.amount != null ? Number(e.amount) * Number(e.price) : null);
+        const stkStr = stk != null ? ` (+$${stk >= 10 ? Math.round(stk) : stk.toFixed(1)})` : "";
         markers.push({
           time: t,
           position: isShort ? "aboveBar" : "belowBar",
           color: "#0ea5e9",
           shape: "square",
-          text: `+DCA #${e.index || idx + 2} @ ${this.formatPrice(e.price)}`,
+          text: `+DCA #${e.index || idx + 2} @ ${this.formatPrice(e.price)}${stkStr}`,
         });
       }
     });
@@ -853,12 +861,14 @@ export class ChartPane {
     grindExits.forEach((g, idx) => {
       const t = this.snapToBar(g.time);
       if (t && g.price != null) {
+        const stk = (g.price != null && g.amount != null) ? Number(g.price) * Number(g.amount) : null;
+        const stkStr = stk != null ? ` (-$${stk >= 10 ? Math.round(stk) : stk.toFixed(1)})` : "";
         markers.push({
           time: t,
           position: isShort ? "belowBar" : "aboveBar",
           color: "#f59e0b",
           shape: "circle",
-          text: `GRIND EXIT #${g.index || idx + 1} @ ${this.formatPrice(g.price)}`,
+          text: `GRIND #${g.index || idx + 1} @ ${this.formatPrice(g.price)}${stkStr}`,
         });
       }
     });
@@ -975,6 +985,7 @@ export class ChartPane {
     this.extraMarkers = [];
     this.tradeOverlay = null;
     this.el.querySelector(".trade-overlay-hud")?.remove();
+    this.el.querySelector(".trade-hud-breakdown-popover")?.remove();
     if (render) {
       this.renderIndicators();
     }
@@ -994,10 +1005,18 @@ export class ChartPane {
     const entryStat = trade.entry != null ? `<span class="trade-hud-stat">Entry: <b>${this.formatPrice(trade.entry)}</b></span>` : "";
     
     const dcaCount = (trade.entries?.length || 0) > 1 ? trade.entries.length - 1 : 0;
-    const dcaStat = dcaCount > 0 ? `<span class="trade-hud-stat dca">${dcaCount} DCA${dcaCount > 1 ? "s" : ""}</span>` : "";
+    const dcaStat = dcaCount > 0
+      ? `<button class="trade-hud-stat dca interactive" data-act="breakdown" title="Click to view DCA & Stake Ledger">${dcaCount} DCA${dcaCount > 1 ? "s" : ""} ▾</button>`
+      : "";
 
     const grindCount = trade.grindExits?.length || 0;
-    const grindStat = grindCount > 0 ? `<span class="trade-hud-stat grind">${grindCount} Grind${grindCount > 1 ? "s" : ""}</span>` : "";
+    const grindStat = grindCount > 0
+      ? `<button class="trade-hud-stat grind interactive" data-act="breakdown" title="Click to view Grind Exits & Stake Ledger">${grindCount} Grind${grindCount > 1 ? "s" : ""} ▾</button>`
+      : "";
+
+    const ledgerBtn = (dcaCount === 0 && grindCount === 0 && (trade.entries?.length || trade.entry != null))
+      ? `<button class="trade-hud-stat interactive" data-act="breakdown" title="Click to view execution fills">Ledger ▾</button>`
+      : "";
 
     let pnlStat = "";
     if (!trade.isOpen) {
@@ -1020,6 +1039,7 @@ export class ChartPane {
         ${entryStat}
         ${dcaStat}
         ${grindStat}
+        ${ledgerBtn}
         ${pnlStat}
       </div>
       <div class="trade-hud-right">
@@ -1027,6 +1047,13 @@ export class ChartPane {
         <button class="trade-hud-close-btn" title="Clear trade overlay">✕ Clear</button>
       </div>
     `;
+
+    hud.querySelectorAll("[data-act='breakdown']").forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        this.toggleTradeOrderBreakdown();
+      };
+    });
 
     hud.querySelector(".trade-hud-fit-btn").onclick = (e) => {
       e.stopPropagation();
@@ -1047,6 +1074,189 @@ export class ChartPane {
     };
 
     this.el.appendChild(hud);
+  }
+
+  buildOrderLedger(trade) {
+    const list = [];
+    const entries = Array.isArray(trade.entries) ? trade.entries : [];
+    const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+    const exits = Array.isArray(trade.exits) ? trade.exits : [];
+
+    // 1. Initial Entry & DCA position increases
+    if (entries.length > 0) {
+      entries.forEach((e, idx) => {
+        const p = e.price != null ? Number(e.price) : trade.entry;
+        const stake = e.stake != null
+          ? Number(e.stake)
+          : (e.amount != null && p != null ? Number(e.amount) * Number(p) : null);
+        list.push({
+          time: e.time || trade.openTime,
+          type: idx === 0 ? "entry" : "dca",
+          label: idx === 0 ? "Initial Entry" : `DCA #${e.index || idx + 1}`,
+          price: p,
+          amount: e.amount != null ? Number(e.amount) : null,
+          stake: stake,
+        });
+      });
+    } else if (trade.entry != null) {
+      list.push({
+        time: trade.openTime,
+        type: "entry",
+        label: "Initial Entry",
+        price: Number(trade.entry),
+        amount: null,
+        stake: null,
+      });
+    }
+
+    // 2. Grinding exits
+    grindExits.forEach((g, idx) => {
+      const p = g.price != null ? Number(g.price) : null;
+      const stake = (p != null && g.amount != null) ? Number(p) * Number(g.amount) : null;
+      list.push({
+        time: g.time,
+        type: "grind",
+        label: `Grind Exit #${g.index || idx + 1}`,
+        price: p,
+        amount: g.amount != null ? -Math.abs(Number(g.amount)) : null,
+        stake: stake != null ? -Math.abs(stake) : null,
+      });
+    });
+
+    // 3. Final Exit if closed
+    if (!trade.isOpen) {
+      const closePrice = trade.exit != null
+        ? Number(trade.exit)
+        : (exits.length && exits[exits.length - 1]?.price != null ? Number(exits[exits.length - 1].price) : null);
+      if (closePrice != null) {
+        list.push({
+          time: trade.closeTime || (exits.length ? exits[exits.length - 1]?.time : null),
+          type: "close",
+          label: `Final Close${trade.exitReason ? ` [${trade.exitReason}]` : ""}`,
+          price: closePrice,
+          amount: null,
+          stake: null,
+        });
+      }
+    }
+
+    // Sort chronologically
+    list.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+    // Calculate running cumulative stake
+    let runningStake = 0;
+    let maxStake = 0;
+    for (const item of list) {
+      if (item.stake != null) {
+        runningStake += item.stake;
+        if (runningStake > maxStake) maxStake = runningStake;
+        item.cumStake = Math.max(0, runningStake);
+      } else {
+        item.cumStake = runningStake > 0 ? runningStake : null;
+      }
+    }
+
+    return { orders: list, maxStake, currentStake: Math.max(0, runningStake) };
+  }
+
+  toggleTradeOrderBreakdown() {
+    const existing = this.el.querySelector(".trade-hud-breakdown-popover");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    if (!this.tradeOverlay) return;
+    const trade = this.tradeOverlay;
+    const { orders, maxStake, currentStake } = this.buildOrderLedger(trade);
+
+    const popover = document.createElement("div");
+    popover.className = "trade-hud-breakdown-popover";
+
+    const rowsHtml = orders.map((o) => {
+      const typeClass = o.type === "entry"
+        ? "entry"
+        : o.type === "dca"
+          ? "dca"
+          : o.type === "grind"
+            ? "grind"
+            : (trade.profitRatio != null && trade.profitRatio < 0 ? "close-loss" : "close");
+      
+      const priceStr = o.price != null ? `$${this.formatPrice(o.price)}` : "-";
+      const amtStr = o.amount != null
+        ? `${o.amount > 0 ? "+" : ""}${Math.abs(o.amount) >= 1000 ? Math.abs(o.amount).toLocaleString(undefined, { maximumFractionDigits: 2 }) : Math.abs(o.amount).toFixed(4)}`
+        : "-";
+      const stkStr = o.stake != null
+        ? `${o.stake >= 0 ? "+" : "-"}$${Math.abs(o.stake).toFixed(2)}`
+        : "-";
+      const cumStr = o.cumStake != null
+        ? `$${o.cumStake.toFixed(2)}`
+        : "-";
+
+      const timeStr = o.time
+        ? new Date(o.time * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
+          " <span class='muted'>" +
+          new Date(o.time * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) +
+          "</span>"
+        : "-";
+
+      return `<tr>
+        <td><span class="hud-order-tag ${typeClass}">${esc(o.label)}</span></td>
+        <td style="color:var(--muted)">${timeStr}</td>
+        <td style="text-align:right">${priceStr}</td>
+        <td style="text-align:right">${amtStr}</td>
+        <td style="text-align:right; font-weight:600; color:${o.stake != null ? (o.stake >= 0 ? '#38bdf8' : '#fbbf24') : 'inherit'}">${stkStr}</td>
+        <td style="text-align:right; font-weight:700; color:#e2e8f0">${cumStr}</td>
+      </tr>`;
+    }).join("");
+
+    popover.innerHTML = `
+      <div class="hud-popover-header">
+        <div class="hud-popover-title">
+          <span class="hud-popover-pair">${esc(trade.pair || "")}</span>
+          ${trade.id != null ? `<span class="hud-popover-id">#${esc(String(trade.id))}</span>` : ""}
+          <span class="hud-popover-subtitle">Order & Stake Ledger</span>
+        </div>
+        <button class="hud-popover-close" title="Close breakdown">✕</button>
+      </div>
+      <div class="hud-popover-table-wrap">
+        <table class="hud-popover-table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Time</th>
+              <th style="text-align:right">Price</th>
+              <th style="text-align:right">Quantity</th>
+              <th style="text-align:right">Stake</th>
+              <th style="text-align:right">Net Stake</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || '<tr><td colspan="6" style="text-align:center; padding:16px; color:var(--muted)">No execution fills recorded</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div class="hud-popover-footer">
+        <span>Active Exposure: <b>$${currentStake.toFixed(2)}</b></span>
+        <span>Peak Position Stake: <b>$${maxStake.toFixed(2)}</b></span>
+      </div>
+    `;
+
+    popover.querySelector(".hud-popover-close").onclick = (e) => {
+      e.stopPropagation();
+      popover.remove();
+    };
+
+    const onDocClick = (e) => {
+      if (!popover.contains(e.target) && !e.target.closest("[data-act='breakdown']")) {
+        popover.remove();
+        document.removeEventListener("mousedown", onDocClick);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener("mousedown", onDocClick);
+    }, 0);
+
+    this.el.appendChild(popover);
   }
 
   // "14 on RSI 14 (1D)": the numeric inputs, what it's built on, and its timeframe.

@@ -44,13 +44,17 @@ function buildTradeMarkers(trade, snapFn) {
 
   const entryTime = snapFn(trade.openTime || (trade.entries && trade.entries[0]?.time));
   const entryPrice = trade.entry != null ? trade.entry : (trade.entries && trade.entries[0]?.price);
+  const initialStake = (trade.entries && trade.entries[0]?.stake != null)
+    ? Number(trade.entries[0].stake)
+    : (trade.entries && trade.entries[0]?.amount != null && entryPrice != null ? trade.entries[0].amount * entryPrice : null);
+  const entryStakeStr = initialStake != null ? ` (+$${initialStake >= 10 ? Math.round(initialStake) : initialStake.toFixed(1)})` : "";
   if (entryTime && entryPrice != null) {
     markers.push({
       time: entryTime,
       position: isShort ? "aboveBar" : "belowBar",
       color: isShort ? "#f97316" : "#3b82f6",
       shape: isShort ? "arrowDown" : "arrowUp",
-      text: `ENTRY @ ${entryPrice}`,
+      text: `ENTRY @ ${entryPrice}${entryStakeStr}`,
     });
   }
 
@@ -59,12 +63,16 @@ function buildTradeMarkers(trade, snapFn) {
   dcaEntries.forEach((e, idx) => {
     const t = snapFn(e.time);
     if (t && e.price != null) {
+      const stk = e.stake != null
+        ? Number(e.stake)
+        : (e.amount != null ? Number(e.amount) * Number(e.price) : null);
+      const stkStr = stk != null ? ` (+$${stk >= 10 ? Math.round(stk) : stk.toFixed(1)})` : "";
       markers.push({
         time: t,
         position: isShort ? "aboveBar" : "belowBar",
         color: "#0ea5e9",
         shape: "square",
-        text: `+DCA #${e.index || idx + 2} @ ${e.price}`,
+        text: `+DCA #${e.index || idx + 2} @ ${e.price}${stkStr}`,
       });
     }
   });
@@ -73,12 +81,14 @@ function buildTradeMarkers(trade, snapFn) {
   grindExits.forEach((g, idx) => {
     const t = snapFn(g.time);
     if (t && g.price != null) {
+      const stk = (g.price != null && g.amount != null) ? Number(g.price) * Number(g.amount) : null;
+      const stkStr = stk != null ? ` (-$${stk >= 10 ? Math.round(stk) : stk.toFixed(1)})` : "";
       markers.push({
         time: t,
         position: isShort ? "belowBar" : "aboveBar",
         color: "#f59e0b",
         shape: "circle",
-        text: `GRIND EXIT #${g.index || idx + 1} @ ${g.price}`,
+        text: `GRIND EXIT #${g.index || idx + 1} @ ${g.price}${stkStr}`,
       });
     }
   });
@@ -100,6 +110,85 @@ function buildTradeMarkers(trade, snapFn) {
   }
 
   return markers;
+}
+
+// Helper replicating ChartPane.prototype.buildOrderLedger
+function buildOrderLedger(trade) {
+  const list = [];
+  const entries = Array.isArray(trade.entries) ? trade.entries : [];
+  const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+  const exits = Array.isArray(trade.exits) ? trade.exits : [];
+
+  if (entries.length > 0) {
+    entries.forEach((e, idx) => {
+      const p = e.price != null ? Number(e.price) : trade.entry;
+      const stake = e.stake != null
+        ? Number(e.stake)
+        : (e.amount != null && p != null ? Number(e.amount) * Number(p) : null);
+      list.push({
+        time: e.time || trade.openTime,
+        type: idx === 0 ? "entry" : "dca",
+        label: idx === 0 ? "Initial Entry" : `DCA #${e.index || idx + 1}`,
+        price: p,
+        amount: e.amount != null ? Number(e.amount) : null,
+        stake: stake,
+      });
+    });
+  } else if (trade.entry != null) {
+    list.push({
+      time: trade.openTime,
+      type: "entry",
+      label: "Initial Entry",
+      price: Number(trade.entry),
+      amount: null,
+      stake: null,
+    });
+  }
+
+  grindExits.forEach((g, idx) => {
+    const p = g.price != null ? Number(g.price) : null;
+    const stake = (p != null && g.amount != null) ? Number(p) * Number(g.amount) : null;
+    list.push({
+      time: g.time,
+      type: "grind",
+      label: `Grind Exit #${g.index || idx + 1}`,
+      price: p,
+      amount: g.amount != null ? -Math.abs(Number(g.amount)) : null,
+      stake: stake != null ? -Math.abs(stake) : null,
+    });
+  });
+
+  if (!trade.isOpen) {
+    const closePrice = trade.exit != null
+      ? Number(trade.exit)
+      : (exits.length && exits[exits.length - 1]?.price != null ? Number(exits[exits.length - 1].price) : null);
+    if (closePrice != null) {
+      list.push({
+        time: trade.closeTime || (exits.length ? exits[exits.length - 1]?.time : null),
+        type: "close",
+        label: `Final Close${trade.exitReason ? ` [${trade.exitReason}]` : ""}`,
+        price: closePrice,
+        amount: null,
+        stake: null,
+      });
+    }
+  }
+
+  list.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+  let runningStake = 0;
+  let maxStake = 0;
+  for (const item of list) {
+    if (item.stake != null) {
+      runningStake += item.stake;
+      if (runningStake > maxStake) maxStake = runningStake;
+      item.cumStake = Math.max(0, runningStake);
+    } else {
+      item.cumStake = runningStake > 0 ? runningStake : null;
+    }
+  }
+
+  return { orders: list, maxStake, currentStake: Math.max(0, runningStake) };
 }
 
 test("snapToBar: correctly snaps timestamps to containing or nearest bars", () => {
@@ -205,4 +294,35 @@ test("Trade Overlay: short trade inverts entry and exit marker positions", () =>
   assert.equal(markers[0].position, "aboveBar");
   assert.equal(markers[0].shape, "arrowDown");
   assert.equal(markers[0].color, "#f97316");
+});
+
+test("Trade Overlay: buildOrderLedger calculates chronological execution ledger, running stake and peak exposure", () => {
+  const trade = {
+    id: 99,
+    pair: "PHA/USDT",
+    side: "long",
+    entry: 0.0375,
+    openTime: 1000,
+    isOpen: true,
+    entries: [
+      { index: 1, time: 1000, price: 0.0375, amount: 1333.33, stake: 50 },
+      { index: 2, time: 1200, price: 0.0360, amount: 2083.33, stake: 75 },
+    ],
+    grindExits: [
+      { index: 1, time: 1400, price: 0.0372, amount: 672.04 }, // 672.04 * 0.0372 = 25
+    ],
+  };
+
+  const { orders, maxStake, currentStake } = buildOrderLedger(trade);
+  assert.equal(orders.length, 3);
+  assert.equal(orders[0].label, "Initial Entry");
+  assert.equal(orders[0].cumStake, 50);
+
+  assert.equal(orders[1].label, "DCA #2");
+  assert.equal(orders[1].cumStake, 125);
+
+  assert.equal(orders[2].label, "Grind Exit #1");
+  assert.ok(orders[2].cumStake < 125);
+  assert.equal(Math.round(maxStake), 125);
+  assert.equal(Math.round(currentStake), 100);
 });
