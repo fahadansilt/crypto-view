@@ -60,9 +60,19 @@ function buildTradeMarkers(trade, snapFn) {
 
   const entries = Array.isArray(trade.entries) ? trade.entries : [];
   const dcaEntries = entries.length > 1 ? entries.slice(1) : [];
+
+  const dcaByBar = new Map();
   dcaEntries.forEach((e, idx) => {
     const t = snapFn(e.time);
     if (t && e.price != null) {
+      if (!dcaByBar.has(t)) dcaByBar.set(t, []);
+      dcaByBar.get(t).push({ ...e, dcaIndex: e.index != null ? e.index : idx + 2 });
+    }
+  });
+
+  for (const [t, list] of dcaByBar.entries()) {
+    if (list.length === 1) {
+      const e = list[0];
       const stk = e.stake != null
         ? Number(e.stake)
         : (e.amount != null ? Number(e.amount) * Number(e.price) : null);
@@ -72,26 +82,92 @@ function buildTradeMarkers(trade, snapFn) {
         position: isShort ? "aboveBar" : "belowBar",
         color: "#0ea5e9",
         shape: "square",
-        text: `+DCA #${e.index || idx + 2} @ ${e.price}${stkStr}`,
+        text: `+DCA #${e.dcaIndex} @ ${e.price}${stkStr}`,
       });
+    } else {
+      let totalAmt = 0, totalCost = 0, totalStk = 0;
+      const indices = [];
+      list.forEach((e) => {
+        indices.push(e.dcaIndex);
+        const amt = Number(e.amount) || 0;
+        const pr = Number(e.price) || 0;
+        if (amt > 0) { totalAmt += amt; totalCost += amt * pr; }
+        if (e.stake != null) totalStk += Number(e.stake);
+        else if (amt > 0 && pr > 0) totalStk += amt * pr;
+      });
+      const avgPrice = (totalAmt > 0 && totalCost > 0) ? totalCost / totalAmt : (list.reduce((sum, e) => sum + Number(e.price), 0) / list.length);
+      const minIdx = Math.min(...indices), maxIdx = Math.max(...indices);
+      const rangeStr = minIdx === maxIdx ? `#${minIdx}` : `#${minIdx}–${maxIdx}`;
+      const stkStr = totalStk > 0 ? ` (+$${totalStk >= 10 ? Math.round(totalStk) : totalStk.toFixed(1)})` : "";
+      markers.push({
+        time: t,
+        position: isShort ? "aboveBar" : "belowBar",
+        color: "#0ea5e9",
+        shape: "square",
+        text: `+${list.length}x DCA (${rangeStr}) @ ${avgPrice}${stkStr}`,
+      });
+    }
+  }
+
+  const rawGrinds = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+  const rawExits = Array.isArray(trade.exits) ? trade.exits : [];
+  const partialExitsFromExits = trade.isOpen ? rawExits : (rawExits.length > 1 ? rawExits.slice(0, -1) : []);
+
+  const seenExitKeys = new Set();
+  const allGrindExits = [];
+  [...rawGrinds, ...partialExitsFromExits].forEach((g, idx) => {
+    const key = `${g.time}_${g.price}_${g.amount}`;
+    if (!seenExitKeys.has(key)) {
+      seenExitKeys.add(key);
+      allGrindExits.push({ ...g, grindIndex: g.index != null ? g.index : idx + 1 });
     }
   });
 
-  const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
-  grindExits.forEach((g, idx) => {
+  const grindByBar = new Map();
+  allGrindExits.forEach((g) => {
     const t = snapFn(g.time);
     if (t && g.price != null) {
-      const stk = (g.price != null && g.amount != null) ? Number(g.price) * Number(g.amount) : null;
+      if (!grindByBar.has(t)) grindByBar.set(t, []);
+      grindByBar.get(t).push(g);
+    }
+  });
+
+  for (const [t, list] of grindByBar.entries()) {
+    if (list.length === 1) {
+      const g = list[0];
+      const stk = g.stake != null ? Math.abs(Number(g.stake)) : ((g.price != null && g.amount != null) ? Number(g.price) * Math.abs(Number(g.amount)) : null);
       const stkStr = stk != null ? ` (-$${stk >= 10 ? Math.round(stk) : stk.toFixed(1)})` : "";
       markers.push({
         time: t,
         position: isShort ? "belowBar" : "aboveBar",
         color: "#f59e0b",
         shape: "circle",
-        text: `GRIND EXIT #${g.index || idx + 1} @ ${g.price}${stkStr}`,
+        text: `GRIND #${g.grindIndex} @ ${g.price}${stkStr}`,
+      });
+    } else {
+      let totalAmt = 0, totalCost = 0, totalStk = 0;
+      const indices = [];
+      list.forEach((g) => {
+        indices.push(g.grindIndex);
+        const amt = Math.abs(Number(g.amount) || 0);
+        const pr = Number(g.price) || 0;
+        if (amt > 0) { totalAmt += amt; totalCost += amt * pr; }
+        if (g.stake != null) totalStk += Math.abs(Number(g.stake));
+        else if (amt > 0 && pr > 0) totalStk += amt * pr;
+      });
+      const avgPrice = (totalAmt > 0 && totalCost > 0) ? totalCost / totalAmt : (list.reduce((sum, g) => sum + Number(g.price), 0) / list.length);
+      const minIdx = Math.min(...indices), maxIdx = Math.max(...indices);
+      const rangeStr = minIdx === maxIdx ? `#${minIdx}` : `#${minIdx}–${maxIdx}`;
+      const stkStr = totalStk > 0 ? ` (-$${totalStk >= 10 ? Math.round(totalStk) : totalStk.toFixed(1)})` : "";
+      markers.push({
+        time: t,
+        position: isShort ? "belowBar" : "aboveBar",
+        color: "#f59e0b",
+        shape: "circle",
+        text: `−${list.length}x GRIND (${rangeStr}) @ ${avgPrice}${stkStr}`,
       });
     }
-  });
+  }
 
   const exitTime = snapFn(trade.closeTime);
   const exitPrice = trade.exit != null ? trade.exit : (trade.exits && trade.exits[trade.exits.length - 1]?.price);
@@ -116,8 +192,19 @@ function buildTradeMarkers(trade, snapFn) {
 function buildOrderLedger(trade) {
   const list = [];
   const entries = Array.isArray(trade.entries) ? trade.entries : [];
-  const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+  const rawGrinds = Array.isArray(trade.grindExits) ? trade.grindExits : [];
   const exits = Array.isArray(trade.exits) ? trade.exits : [];
+  const partialExitsFromExits = trade.isOpen ? exits : (exits.length > 1 ? exits.slice(0, -1) : []);
+
+  const seenExitKeys = new Set();
+  const grindExits = [];
+  [...rawGrinds, ...partialExitsFromExits].forEach((g, idx) => {
+    const key = `${g.time}_${g.price}_${g.amount}`;
+    if (!seenExitKeys.has(key)) {
+      seenExitKeys.add(key);
+      grindExits.push({ ...g, index: g.index != null ? g.index : idx + 1 });
+    }
+  });
 
   if (entries.length > 0) {
     entries.forEach((e, idx) => {
@@ -325,4 +412,86 @@ test("Trade Overlay: buildOrderLedger calculates chronological execution ledger,
   assert.ok(orders[2].cumStake < 125);
   assert.equal(Math.round(maxStake), 125);
   assert.equal(Math.round(currentStake), 100);
+});
+
+test("Trade Overlay: merges multiple DCAs on a single candle into a single consolidated marker", () => {
+  const bars = [
+    { time: 1000 },
+    { time: 1300 }, // candle 1300 has 3 DCAs!
+    { time: 1600 },
+  ];
+  const snap = (t) => snapToBar(t, bars);
+
+  const trade = {
+    id: 51,
+    pair: "GTC/USDT",
+    side: "long",
+    entry: 0.25,
+    openTime: 1000,
+    isOpen: true,
+    entries: [
+      { index: 1, time: 1000, price: 0.250, amount: 100, stake: 25 },
+      { index: 2, time: 1310, price: 0.230, amount: 40, stake: 9.2 },
+      { index: 3, time: 1320, price: 0.232, amount: 30, stake: 6.96 },
+      { index: 4, time: 1350, price: 0.234, amount: 30, stake: 7.02 },
+    ],
+  };
+
+  const markers = buildTradeMarkers(trade, snap);
+  // Expecting 2 markers: 1 Initial Entry on bar 1000, and 1 merged 3x DCA on bar 1300
+  assert.equal(markers.length, 2);
+
+  assert.equal(markers[0].time, 1000);
+  assert.equal(markers[0].shape, "arrowUp");
+
+  const dcaMarker = markers[1];
+  assert.equal(dcaMarker.time, 1300);
+  assert.equal(dcaMarker.position, "belowBar");
+  assert.equal(dcaMarker.shape, "square");
+  assert.ok(dcaMarker.text.startsWith("+3x DCA (#2–4) @"));
+  assert.ok(dcaMarker.text.includes("(+$23)"));
+});
+
+test("Trade Overlay: cleanly renders both DCA and Grind Exit on the same candle without collision", () => {
+  const bars = [
+    { time: 1000 },
+    { time: 1300 },
+  ];
+  const snap = (t) => snapToBar(t, bars);
+
+  const trade = {
+    id: 51,
+    pair: "GTC/USDT",
+    side: "long",
+    entry: 0.25,
+    openTime: 1000,
+    isOpen: true,
+    entries: [
+      { index: 1, time: 1000, price: 0.25 },
+      { index: 2, time: 1310, price: 0.23, stake: 5 },
+    ],
+    // Grind exit happening on the same bar 1300
+    exits: [
+      { index: 1, time: 1340, price: 0.245, amount: 20, stake: 4.9 },
+    ],
+  };
+
+  const markers = buildTradeMarkers(trade, snap);
+  assert.equal(markers.length, 3);
+
+  // Initial Entry
+  assert.equal(markers[0].time, 1000);
+
+  // DCA on bar 1300 is placed belowBar
+  const dca = markers.find((m) => m.time === 1300 && m.shape === "square");
+  assert.ok(dca);
+  assert.equal(dca.position, "belowBar");
+  assert.equal(dca.color, "#0ea5e9");
+
+  // Grind Exit on bar 1300 is placed aboveBar (opposite side!)
+  const grind = markers.find((m) => m.time === 1300 && m.shape === "circle");
+  assert.ok(grind);
+  assert.equal(grind.position, "aboveBar");
+  assert.equal(grind.color, "#f59e0b");
+  assert.ok(grind.text.includes("GRIND"));
 });

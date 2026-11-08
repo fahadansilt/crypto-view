@@ -839,9 +839,23 @@ export class ChartPane {
     // 2. Position Increases / DCA entries (skip index 0 if it's the initial entry)
     const entries = Array.isArray(trade.entries) ? trade.entries : [];
     const dcaEntries = entries.length > 1 ? entries.slice(1) : [];
+
+    // Group DCA entries by snapped candle bar time to prevent visual congestion
+    const dcaByBar = new Map();
     dcaEntries.forEach((e, idx) => {
       const t = this.snapToBar(e.time);
       if (t && e.price != null) {
+        if (!dcaByBar.has(t)) dcaByBar.set(t, []);
+        dcaByBar.get(t).push({
+          ...e,
+          dcaIndex: e.index != null ? e.index : idx + 2,
+        });
+      }
+    });
+
+    for (const [t, list] of dcaByBar.entries()) {
+      if (list.length === 1) {
+        const e = list[0];
         const stk = e.stake != null
           ? Number(e.stake)
           : (e.amount != null ? Number(e.amount) * Number(e.price) : null);
@@ -851,27 +865,128 @@ export class ChartPane {
           position: isShort ? "aboveBar" : "belowBar",
           color: "#0ea5e9",
           shape: "square",
-          text: `+DCA #${e.index || idx + 2} @ ${this.formatPrice(e.price)}${stkStr}`,
+          text: `+DCA #${e.dcaIndex} @ ${this.formatPrice(e.price)}${stkStr}`,
         });
+      } else {
+        // Multiple DCAs on the same candle: merge into a single consolidated marker
+        let totalAmt = 0;
+        let totalCost = 0;
+        let totalStk = 0;
+        const indices = [];
+
+        list.forEach((e) => {
+          indices.push(e.dcaIndex);
+          const amt = Number(e.amount) || 0;
+          const pr = Number(e.price) || 0;
+          if (amt > 0) {
+            totalAmt += amt;
+            totalCost += amt * pr;
+          }
+          if (e.stake != null) {
+            totalStk += Number(e.stake);
+          } else if (amt > 0 && pr > 0) {
+            totalStk += amt * pr;
+          }
+        });
+
+        const avgPrice = (totalAmt > 0 && totalCost > 0)
+          ? totalCost / totalAmt
+          : (list.reduce((sum, e) => sum + Number(e.price), 0) / list.length);
+
+        const minIdx = Math.min(...indices);
+        const maxIdx = Math.max(...indices);
+        const rangeStr = minIdx === maxIdx ? `#${minIdx}` : `#${minIdx}–${maxIdx}`;
+        const stkStr = totalStk > 0 ? ` (+$${totalStk >= 10 ? Math.round(totalStk) : totalStk.toFixed(1)})` : "";
+
+        markers.push({
+          time: t,
+          position: isShort ? "aboveBar" : "belowBar",
+          color: "#0ea5e9",
+          shape: "square",
+          text: `+${list.length}x DCA (${rangeStr}) @ ${this.formatPrice(avgPrice)}${stkStr}`,
+        });
+      }
+    }
+
+    // 3. Grinding & Partial Exits (include both trade.grindExits and non-final trade.exits)
+    const rawGrinds = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+    const rawExits = Array.isArray(trade.exits) ? trade.exits : [];
+    const partialExitsFromExits = trade.isOpen ? rawExits : (rawExits.length > 1 ? rawExits.slice(0, -1) : []);
+
+    const seenExitKeys = new Set();
+    const allGrindExits = [];
+    [...rawGrinds, ...partialExitsFromExits].forEach((g, idx) => {
+      const key = `${g.time}_${g.price}_${g.amount}`;
+      if (!seenExitKeys.has(key)) {
+        seenExitKeys.add(key);
+        allGrindExits.push({ ...g, grindIndex: g.index != null ? g.index : idx + 1 });
       }
     });
 
-    // 3. Grinding Exits (Partial profit takings)
-    const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
-    grindExits.forEach((g, idx) => {
+    // Group grinding exits by snapped candle bar time
+    const grindByBar = new Map();
+    allGrindExits.forEach((g) => {
       const t = this.snapToBar(g.time);
       if (t && g.price != null) {
-        const stk = (g.price != null && g.amount != null) ? Number(g.price) * Number(g.amount) : null;
+        if (!grindByBar.has(t)) grindByBar.set(t, []);
+        grindByBar.get(t).push(g);
+      }
+    });
+
+    for (const [t, list] of grindByBar.entries()) {
+      if (list.length === 1) {
+        const g = list[0];
+        const stk = g.stake != null
+          ? Math.abs(Number(g.stake))
+          : ((g.price != null && g.amount != null) ? Number(g.price) * Math.abs(Number(g.amount)) : null);
         const stkStr = stk != null ? ` (-$${stk >= 10 ? Math.round(stk) : stk.toFixed(1)})` : "";
         markers.push({
           time: t,
           position: isShort ? "belowBar" : "aboveBar",
           color: "#f59e0b",
           shape: "circle",
-          text: `GRIND #${g.index || idx + 1} @ ${this.formatPrice(g.price)}${stkStr}`,
+          text: `GRIND #${g.grindIndex} @ ${this.formatPrice(g.price)}${stkStr}`,
+        });
+      } else {
+        // Multiple Grinds on the same candle: merge into a single consolidated marker
+        let totalAmt = 0;
+        let totalCost = 0;
+        let totalStk = 0;
+        const indices = [];
+
+        list.forEach((g) => {
+          indices.push(g.grindIndex);
+          const amt = Math.abs(Number(g.amount) || 0);
+          const pr = Number(g.price) || 0;
+          if (amt > 0) {
+            totalAmt += amt;
+            totalCost += amt * pr;
+          }
+          if (g.stake != null) {
+            totalStk += Math.abs(Number(g.stake));
+          } else if (amt > 0 && pr > 0) {
+            totalStk += amt * pr;
+          }
+        });
+
+        const avgPrice = (totalAmt > 0 && totalCost > 0)
+          ? totalCost / totalAmt
+          : (list.reduce((sum, g) => sum + Number(g.price), 0) / list.length);
+
+        const minIdx = Math.min(...indices);
+        const maxIdx = Math.max(...indices);
+        const rangeStr = minIdx === maxIdx ? `#${minIdx}` : `#${minIdx}–${maxIdx}`;
+        const stkStr = totalStk > 0 ? ` (-$${totalStk >= 10 ? Math.round(totalStk) : totalStk.toFixed(1)})` : "";
+
+        markers.push({
+          time: t,
+          position: isShort ? "belowBar" : "aboveBar",
+          color: "#f59e0b",
+          shape: "circle",
+          text: `−${list.length}x GRIND (${rangeStr}) @ ${this.formatPrice(avgPrice)}${stkStr}`,
         });
       }
-    });
+    }
 
     // 4. Final Exit (if closed)
     const exitTime = this.snapToBar(trade.closeTime);
@@ -1079,8 +1194,19 @@ export class ChartPane {
   buildOrderLedger(trade) {
     const list = [];
     const entries = Array.isArray(trade.entries) ? trade.entries : [];
-    const grindExits = Array.isArray(trade.grindExits) ? trade.grindExits : [];
+    const rawGrinds = Array.isArray(trade.grindExits) ? trade.grindExits : [];
     const exits = Array.isArray(trade.exits) ? trade.exits : [];
+    const partialExitsFromExits = trade.isOpen ? exits : (exits.length > 1 ? exits.slice(0, -1) : []);
+
+    const seenExitKeys = new Set();
+    const grindExits = [];
+    [...rawGrinds, ...partialExitsFromExits].forEach((g, idx) => {
+      const key = `${g.time}_${g.price}_${g.amount}`;
+      if (!seenExitKeys.has(key)) {
+        seenExitKeys.add(key);
+        grindExits.push({ ...g, index: g.index != null ? g.index : idx + 1 });
+      }
+    });
 
     // 1. Initial Entry & DCA position increases
     if (entries.length > 0) {
